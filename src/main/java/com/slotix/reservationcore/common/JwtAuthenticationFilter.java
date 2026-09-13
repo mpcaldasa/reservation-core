@@ -7,6 +7,7 @@ import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import org.jspecify.annotations.NonNull;
 import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -33,20 +34,26 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
         String authHeader = request.getHeader("Authorization");
 
         if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            String token = authHeader.substring(7);
-
             try {
-                Claims claims = jwtService.parseAndValidate(token);
-                String userId = claims.getSubject();
+                Claims claims = jwtService.parseAndValidate(authHeader.substring(7));
+
+                List<?> tokenRoles = claims.get("roles", List.class);
+                List<SimpleGrantedAuthority> authorities = tokenRoles == null
+                    ? List.of()
+                    : tokenRoles.stream()
+                        .map(String::valueOf)
+                        .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
+                        .toList();
 
                 UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(userId, null, List.of());
+                    new UsernamePasswordAuthenticationToken(
+                        claims.getSubject(),
+                        null,
+                        authorities
+                    );
 
                 SecurityContextHolder.getContext().setAuthentication(authentication);
-
             } catch (Exception ex) {
-                // Token inválido o expirado: simplemente no autenticamos.
-                // El endpoint decidirá si requiere autenticación o no.
                 SecurityContextHolder.clearContext();
             }
         }

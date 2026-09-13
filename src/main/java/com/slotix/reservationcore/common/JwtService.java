@@ -10,6 +10,7 @@ import javax.crypto.SecretKey;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -26,13 +27,13 @@ public class JwtService {
         this.expirationMinutes = expirationMinutes;
     }
 
-    public String generateToken(UUID userId, UUID companyId, String role) {
+    public String generateToken(UUID userId, UUID companyId, List<String> roles) {
         Instant now = Instant.now();
 
         return Jwts.builder()
             .subject(userId.toString())
             .claim("companyId", companyId.toString())
-            .claim("role", role)
+            .claim("roles", roles)
             .issuedAt(java.util.Date.from(now))
             .expiration(java.util.Date.from(now.plus(expirationMinutes, ChronoUnit.MINUTES)))
             .signWith(key)
