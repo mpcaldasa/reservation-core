@@ -1,5 +1,6 @@
 package com.slotix.reservationcore.common;
 
+import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.security.Keys;
 import org.springframework.beans.factory.annotation.Value;
@@ -36,5 +37,13 @@ public class JwtService {
             .expiration(java.util.Date.from(now.plus(expirationMinutes, ChronoUnit.MINUTES)))
             .signWith(key)
             .compact();
+    }
+
+    public Claims parseAndValidate(String token) {
+        return Jwts.parser()
+            .verifyWith(key)
+            .build()
+            .parseSignedClaims(token)
+            .getPayload();
     }
 }
