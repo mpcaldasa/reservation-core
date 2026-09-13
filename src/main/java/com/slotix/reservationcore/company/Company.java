@@ -46,6 +46,20 @@ public class Company {
         // Constructor vacío requerido por JPA/Hibernate
     }
 
+    public static Company create(String legalName, String displayName, String slug, String contactEmail) {
+        Company company = new Company();
+        company.legalName = legalName;
+        company.displayName = displayName;
+        company.slug = slug;
+        company.status = "PENDING";
+        company.timezone = "America/Bogota";
+        company.currencyCode = "COP";
+        company.contactEmail = contactEmail;
+        company.createdAt = Instant.now();
+        company.updatedAt = Instant.now();
+        return company;
+    }
+
     // Getters (sin setters todavía; los añadiremos cuando construyamos la lógica de negocio)
 
     public UUID getId() {

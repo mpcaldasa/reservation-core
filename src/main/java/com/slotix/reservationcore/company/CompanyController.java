@@ -1,8 +1,7 @@
 package com.slotix.reservationcore.company;
 
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
 
@@ -19,5 +18,17 @@ public class CompanyController {
     @GetMapping
     public List<Company> listCompanies() {
         return companyRepository.findAll();
+    }
+
+    @PostMapping
+    public ResponseEntity<Company> createCompany(@RequestBody CreateCompanyRequest request) {
+        Company company = Company.create(
+            request.legalName(),
+            request.displayName(),
+            request.slug(),
+            request.contactEmail()
+        );
+        Company saved = companyRepository.save(company);
+        return ResponseEntity.ok(saved);
     }
 }
