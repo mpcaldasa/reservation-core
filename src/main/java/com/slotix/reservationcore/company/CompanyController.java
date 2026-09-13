@@ -1,5 +1,6 @@
 package com.slotix.reservationcore.company;
 
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
@@ -16,12 +17,15 @@ public class CompanyController {
     }
 
     @GetMapping
-    public List<Company> listCompanies() {
-        return companyRepository.findAll();
+    public List<CompanyResponse> listCompanies() {
+        return companyRepository.findAll()
+            .stream()
+            .map(CompanyResponse::from)
+            .toList();
     }
 
     @PostMapping
-    public ResponseEntity<Company> createCompany(@RequestBody CreateCompanyRequest request) {
+    public ResponseEntity<CompanyResponse> createCompany(@Valid @RequestBody CreateCompanyRequest request) {
         Company company = Company.create(
             request.legalName(),
             request.displayName(),
@@ -29,6 +33,6 @@ public class CompanyController {
             request.contactEmail()
         );
         Company saved = companyRepository.save(company);
-        return ResponseEntity.ok(saved);
+        return ResponseEntity.ok(CompanyResponse.from(saved));
     }
 }
