@@ -27,10 +27,10 @@ public class Company {
     @Column(name = "timezone", nullable = false)
     private String timezone;
 
-    @Column(name = "currency_code", nullable = false)
+    @Column(name = "currency_code", nullable = false, length = 3)
     private String currencyCode;
 
-    @Column(name = "contact_email", nullable = false)
+    @Column(name = "contact_email", nullable = false, columnDefinition = "citext")
     private String contactEmail;
 
     @Column(name = "created_at", nullable = false)
