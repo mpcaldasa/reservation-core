@@ -1,0 +1,16 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: slotix-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: slotix
+      POSTGRES_USER: slotix
+      POSTGRES_PASSWORD: slotix_dev_password
+    ports:
+      - "5432:5432"
+    volumes:
+      - slotix_postgres_data:/var/lib/postgresql/data
+
+volumes:
+  slotix_postgres_data:
