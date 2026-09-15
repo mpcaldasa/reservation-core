@@ -25,8 +25,8 @@ public class CompanyMembership {
     @GeneratedValue
     private UUID id;
 
-    @Column(name = "tenant_id", nullable = false)
-    private UUID tenantId;
+    @Column(name = "company_id", nullable = false)
+    private UUID companyId;
 
     @Column(name = "user_id", nullable = false)
     private UUID userId;
@@ -58,12 +58,24 @@ public class CompanyMembership {
     protected CompanyMembership() {
     }
 
+    public static CompanyMembership create(UUID companyId, UUID userId, Set<MembershipRole> roles) {
+        CompanyMembership membership = new CompanyMembership();
+        membership.companyId = companyId;
+        membership.userId = userId;
+        membership.status = "ACTIVE";
+        membership.joinedAt = Instant.now();
+        membership.createdAt = Instant.now();
+        membership.updatedAt = Instant.now();
+        membership.roles = new HashSet<>(roles);
+        return membership;
+    }
+
     public UUID getId() {
         return id;
     }
 
-    public UUID getTenantId() {
-        return tenantId;
+    public UUID getCompanyId() {
+        return companyId;
     }
 
     public UUID getUserId() {

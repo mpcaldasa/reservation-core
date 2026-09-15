@@ -1,6 +1,6 @@
 CREATE TABLE company_memberships (
   id uuid PRIMARY KEY DEFAULT gen_random_uuid(),
-  tenant_id uuid NOT NULL REFERENCES companies(id),
+  company_id uuid NOT NULL REFERENCES companies(id),
   user_id uuid NOT NULL REFERENCES users(id),
   status text NOT NULL CHECK (status IN ('INVITED', 'ACTIVE', 'SUSPENDED')),
   joined_at timestamptz,
@@ -10,7 +10,7 @@ CREATE TABLE company_memberships (
 );
 
 CREATE UNIQUE INDEX uq_company_memberships_active
-  ON company_memberships (tenant_id, user_id)
+  ON company_memberships (company_id, user_id)
   WHERE deleted_at IS NULL;
 
 CREATE INDEX ix_company_memberships_user_active
@@ -31,12 +31,17 @@ CREATE TABLE platform_user_roles (
   PRIMARY KEY (user_id, role)
 );
 
+-- RN-11: el email es único globalmente, no solo por empresa.
+-- Eliminamos la restricción antigua de V3 que lo limitaba a nivel de empresa.
+ALTER TABLE users DROP CONSTRAINT uq_users_company_email;
+
 CREATE UNIQUE INDEX uq_users_email_active
   ON users (email)
   WHERE deleted_at IS NULL;
 
+-- Migra los usuarios existentes hacia el nuevo modelo de membresías
 INSERT INTO company_memberships (
-  id, tenant_id, user_id, status, joined_at, created_at, updated_at, deleted_at
+  id, company_id, user_id, status, joined_at, created_at, updated_at, deleted_at
 )
 SELECT
   gen_random_uuid(),
@@ -50,6 +55,7 @@ SELECT
 FROM users
 WHERE deleted_at IS NULL;
 
+-- Migra los roles legado (OWNER/ADMIN/STAFF) a los roles reales de la especificación
 INSERT INTO membership_roles (membership_id, role, created_at)
 SELECT
   membership.id,
@@ -61,5 +67,5 @@ SELECT
 FROM users legacy_user
 JOIN company_memberships membership
   ON membership.user_id = legacy_user.id
- AND membership.tenant_id = legacy_user.company_id
+ AND membership.company_id = legacy_user.company_id
 WHERE legacy_user.deleted_at IS NULL;

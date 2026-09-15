@@ -1,26 +1,27 @@
 package com.slotix.reservationcore.identity;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public record UserResponse(
     UUID id,
-    UUID companyId,
     String email,
     String fullName,
-    String role,
     String status,
-    Instant createdAt
+    Instant createdAt,
+    UUID companyId,
+    List<String> roles
 ) {
-    public static UserResponse from(User user) {
+    public static UserResponse from(User user, CompanyMembership membership) {
         return new UserResponse(
             user.getId(),
-            user.getCompanyId(),
             user.getEmail(),
             user.getFullName(),
-            user.getRole(),
             user.getStatus(),
-            user.getCreatedAt()
+            user.getCreatedAt(),
+            membership.getCompanyId(),
+            membership.getRoles().stream().map(Enum::name).sorted().toList()
         );
     }
 }

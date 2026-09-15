@@ -2,13 +2,14 @@ package com.slotix.reservationcore.identity;
 
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotEmpty;
+import jakarta.validation.constraints.NotNull;
 import jakarta.validation.constraints.Size;
 
+import java.util.Set;
 import java.util.UUID;
 
-public record CreateUserRequest(
-
-    UUID companyId,
+public record RegisterUserRequest(
 
     @NotBlank(message = "email es obligatorio")
     @Email(message = "email debe ser válido")
@@ -21,7 +22,10 @@ public record CreateUserRequest(
     @NotBlank(message = "fullName es obligatorio")
     String fullName,
 
-    @NotBlank(message = "role es obligatorio")
-    String role
+    @NotNull(message = "companyId es obligatorio")
+    UUID companyId,
+
+    @NotEmpty(message = "roles debe tener al menos un rol")
+    Set<MembershipRole> roles
 ) {
 }

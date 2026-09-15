@@ -33,6 +33,24 @@ public class UserController {
         this.jwtService = jwtService;
     }
 
+    @PostMapping
+    public ResponseEntity<UserResponse> register(@Valid @RequestBody RegisterUserRequest request) {
+        String normalizedEmail = request.email().trim().toLowerCase(Locale.ROOT);
+        String hashedPassword = passwordEncoder.encode(request.password());
+
+        User user = User.create(normalizedEmail, hashedPassword, request.fullName());
+        User savedUser = userRepository.save(user);
+
+        CompanyMembership membership = CompanyMembership.create(
+            request.companyId(),
+            savedUser.getId(),
+            request.roles()
+        );
+        CompanyMembership savedMembership = companyMembershipRepository.save(membership);
+
+        return ResponseEntity.ok(UserResponse.from(savedUser, savedMembership));
+    }
+
     @PostMapping("/login")
     public ResponseEntity<LoginResponse> login(@Valid @RequestBody LoginRequest request) {
         String normalizedEmail = request.email().trim().toLowerCase(Locale.ROOT);
@@ -46,7 +64,7 @@ public class UserController {
         }
 
         CompanyMembership membership = companyMembershipRepository
-            .findByTenantIdAndUserIdAndDeletedAtIsNull(request.companyId(), user.getId())
+            .findByCompanyIdAndUserIdAndDeletedAtIsNull(request.companyId(), user.getId())
             .filter(CompanyMembership::isActive)
             .orElseThrow(InvalidCredentialsException::new);
 
@@ -56,7 +74,7 @@ public class UserController {
             .sorted()
             .toList();
 
-        String token = jwtService.generateToken(user.getId(), membership.getTenantId(), roles);
+        String token = jwtService.generateToken(user.getId(), membership.getCompanyId(), roles);
         return ResponseEntity.ok(LoginResponse.of(token));
     }
 }

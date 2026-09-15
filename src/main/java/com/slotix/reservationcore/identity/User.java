@@ -12,9 +12,6 @@ public class User {
     @GeneratedValue
     private UUID id;
 
-    @Column(name = "company_id", nullable = false)
-    private UUID companyId;
-
     @Column(name = "email", nullable = false, columnDefinition = "citext")
     private String email;
 
@@ -23,9 +20,6 @@ public class User {
 
     @Column(name = "full_name", nullable = false)
     private String fullName;
-
-    @Column(name = "role", nullable = false)
-    private String role;
 
     @Column(name = "status", nullable = false)
     private String status;
@@ -43,13 +37,11 @@ public class User {
         // Constructor vacío requerido por JPA/Hibernate
     }
 
-    public static User create(UUID companyId, String email, String passwordHash, String fullName, String role) {
+    public static User create(String email, String passwordHash, String fullName) {
         User user = new User();
-        user.companyId = companyId;
         user.email = email;
         user.passwordHash = passwordHash;
         user.fullName = fullName;
-        user.role = role;
         user.status = "ACTIVE";
         user.createdAt = Instant.now();
         user.updatedAt = Instant.now();
@@ -58,10 +50,6 @@ public class User {
 
     public UUID getId() {
         return id;
-    }
-
-    public UUID getCompanyId() {
-        return companyId;
     }
 
     public String getEmail() {
@@ -74,10 +62,6 @@ public class User {
 
     public String getFullName() {
         return fullName;
-    }
-
-    public String getRole() {
-        return role;
     }
 
     public String getStatus() {

@@ -7,8 +7,8 @@ import java.util.UUID;
 
 public interface CompanyMembershipRepository extends JpaRepository<CompanyMembership, UUID> {
 
-    Optional<CompanyMembership> findByTenantIdAndUserIdAndDeletedAtIsNull(
-        UUID tenantId,
+    Optional<CompanyMembership> findByCompanyIdAndUserIdAndDeletedAtIsNull(
+        UUID companyId,
         UUID userId
     );
 }
