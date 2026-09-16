@@ -2,6 +2,7 @@ package com.slotix.reservationcore.common;
 
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.http.HttpMethod;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -14,9 +15,17 @@ import org.springframework.security.web.authentication.UsernamePasswordAuthentic
 public class SecurityConfig {
 
     private final JwtAuthenticationFilter jwtAuthenticationFilter;
+    private final RestAccessDeniedHandler restAccessDeniedHandler;
+    private final RestAuthenticationEntryPoint restAuthenticationEntryPoint;
 
-    public SecurityConfig(JwtAuthenticationFilter jwtAuthenticationFilter) {
+    public SecurityConfig(
+        JwtAuthenticationFilter jwtAuthenticationFilter,
+        RestAccessDeniedHandler restAccessDeniedHandler,
+        RestAuthenticationEntryPoint restAuthenticationEntryPoint
+    ) {
         this.jwtAuthenticationFilter = jwtAuthenticationFilter;
+        this.restAccessDeniedHandler = restAccessDeniedHandler;
+        this.restAuthenticationEntryPoint = restAuthenticationEntryPoint;
     }
 
     @Bean
@@ -33,10 +42,15 @@ public class SecurityConfig {
             .sessionManagement(session ->
                 session.sessionCreationPolicy(SessionCreationPolicy.STATELESS)
             )
+            .exceptionHandling(exceptions -> exceptions
+                .accessDeniedHandler(restAccessDeniedHandler)
+                .authenticationEntryPoint(restAuthenticationEntryPoint)
+            )
             .authorizeHttpRequests(auth -> auth
                 .requestMatchers("/api/users/login").permitAll()
-                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/users").permitAll()
-                .requestMatchers(org.springframework.http.HttpMethod.POST, "/api/companies").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/users").permitAll()
+                .requestMatchers(HttpMethod.POST, "/api/companies").permitAll()
+                .requestMatchers(HttpMethod.GET, "/api/companies").hasAuthority("ROLE_PLATFORM_ADMIN")
                 .anyRequest().authenticated()
             )
             .addFilterBefore(

@@ -9,6 +9,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
@@ -18,17 +19,20 @@ public class UserController {
 
     private final UserRepository userRepository;
     private final CompanyMembershipRepository companyMembershipRepository;
+    private final PlatformUserRoleRepository platformUserRoleRepository;
     private final PasswordEncoder passwordEncoder;
     private final JwtService jwtService;
 
     public UserController(
         UserRepository userRepository,
         CompanyMembershipRepository companyMembershipRepository,
+        PlatformUserRoleRepository platformUserRoleRepository,
         PasswordEncoder passwordEncoder,
         JwtService jwtService
     ) {
         this.userRepository = userRepository;
         this.companyMembershipRepository = companyMembershipRepository;
+        this.platformUserRoleRepository = platformUserRoleRepository;
         this.passwordEncoder = passwordEncoder;
         this.jwtService = jwtService;
     }
@@ -68,11 +72,12 @@ public class UserController {
             .filter(CompanyMembership::isActive)
             .orElseThrow(InvalidCredentialsException::new);
 
-        List<String> roles = membership.getRoles()
-            .stream()
-            .map(Enum::name)
-            .sorted()
-            .toList();
+        List<String> roles = new ArrayList<>(
+            membership.getRoles().stream().map(Enum::name).sorted().toList()
+        );
+
+        platformUserRoleRepository.findByUserId(user.getId())
+            .forEach(platformRole -> roles.add(platformRole.getRole().name()));
 
         String token = jwtService.generateToken(user.getId(), membership.getCompanyId(), roles);
         return ResponseEntity.ok(LoginResponse.of(token));
