@@ -43,7 +43,7 @@ public class Company {
     private Instant deletedAt;
 
     protected Company() {
-        // Constructor vacío requerido por JPA/Hibernate
+        // Required by JPA/Hibernate.
     }
 
     public static Company create(String legalName, String displayName, String slug, String contactEmail) {
@@ -60,7 +60,7 @@ public class Company {
         return company;
     }
 
-    // Getters (sin setters todavía; los añadiremos cuando construyamos la lógica de negocio)
+    // Getters only. State changes will be added with explicit domain operations.
 
     public UUID getId() {
         return id;
@@ -104,5 +104,17 @@ public class Company {
 
     public Instant getDeletedAt() {
         return deletedAt;
+    }
+
+    public boolean isActive() {
+        return "ACTIVE".equals(status) && deletedAt == null;
+    }
+
+    public void activate() {
+        if (deletedAt != null) {
+            throw new IllegalStateException("A deleted company cannot be activated");
+        }
+        status = "ACTIVE";
+        updatedAt = Instant.now();
     }
 }

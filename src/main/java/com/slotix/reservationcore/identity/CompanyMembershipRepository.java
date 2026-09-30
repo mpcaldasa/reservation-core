@@ -11,4 +11,10 @@ public interface CompanyMembershipRepository extends JpaRepository<CompanyMember
         UUID companyId,
         UUID userId
     );
+
+    boolean existsByCompanyIdAndUserIdAndStatusAndDeletedAtIsNull(
+        UUID companyId,
+        UUID userId,
+        String status
+    );
 }

@@ -34,7 +34,7 @@ public class User {
     private Instant deletedAt;
 
     protected User() {
-        // Constructor vacío requerido por JPA/Hibernate
+        // Required by JPA/Hibernate.
     }
 
     public static User create(String email, String passwordHash, String fullName) {

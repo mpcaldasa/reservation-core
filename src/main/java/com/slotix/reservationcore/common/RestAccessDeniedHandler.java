@@ -26,7 +26,7 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", HttpStatus.FORBIDDEN.value());
-        body.put("error", "No tienes permisos para acceder a este recurso");
+        body.put("error", "You do not have permission to access this resource");
 
         response.setStatus(HttpStatus.FORBIDDEN.value());
         response.setContentType("application/json;charset=UTF-8");

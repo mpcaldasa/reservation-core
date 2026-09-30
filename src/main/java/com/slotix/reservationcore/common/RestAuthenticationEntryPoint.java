@@ -26,7 +26,7 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
         Map<String, Object> body = new LinkedHashMap<>();
         body.put("status", HttpStatus.UNAUTHORIZED.value());
-        body.put("error", "Autenticación requerida o token inválido/expirado");
+        body.put("error", "Authentication is required or the token is invalid or expired");
 
         response.setStatus(HttpStatus.UNAUTHORIZED.value());
         response.setContentType("application/json;charset=UTF-8");

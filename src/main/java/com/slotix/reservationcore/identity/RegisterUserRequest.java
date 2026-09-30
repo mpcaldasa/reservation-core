@@ -11,21 +11,21 @@ import java.util.UUID;
 
 public record RegisterUserRequest(
 
-    @NotBlank(message = "email es obligatorio")
-    @Email(message = "email debe ser válido")
+    @NotBlank(message = "email is required")
+    @Email(message = "email must be a valid email address")
     String email,
 
-    @NotBlank(message = "password es obligatorio")
-    @Size(min = 8, message = "password debe tener al menos 8 caracteres")
+    @NotBlank(message = "password is required")
+    @Size(min = 8, message = "password must contain at least 8 characters")
     String password,
 
-    @NotBlank(message = "fullName es obligatorio")
+    @NotBlank(message = "fullName is required")
     String fullName,
 
-    @NotNull(message = "companyId es obligatorio")
+    @NotNull(message = "companyId is required")
     UUID companyId,
 
-    @NotEmpty(message = "roles debe tener al menos un rol")
+    @NotEmpty(message = "roles must contain at least one role")
     Set<MembershipRole> roles
 ) {
 }
