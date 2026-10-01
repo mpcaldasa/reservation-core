@@ -2,6 +2,8 @@ package com.slotix.reservationcore.resource;
 
 import com.slotix.reservationcore.PostgresIntegrationTestSupport;
 import com.slotix.reservationcore.common.JwtService;
+import com.slotix.reservationcore.availability.AvailabilityRuleRepository;
+import com.slotix.reservationcore.availability.ResourceBlockRepository;
 import com.slotix.reservationcore.company.Company;
 import com.slotix.reservationcore.company.CompanyRepository;
 import com.slotix.reservationcore.identity.CompanyMembership;
@@ -36,13 +38,36 @@ class ResourceApiIntegrationTest extends PostgresIntegrationTestSupport {
     @Autowired private UserRepository userRepository;
     @Autowired private CompanyMembershipRepository companyMembershipRepository;
     @Autowired private ResourceRepository resourceRepository;
+    @Autowired private AvailabilityRuleRepository availabilityRuleRepository;
+    @Autowired private ResourceBlockRepository resourceBlockRepository;
 
     @BeforeEach
     void cleanDatabase() {
+        resourceBlockRepository.deleteAll();
+        availabilityRuleRepository.deleteAll();
         resourceRepository.deleteAll();
         companyMembershipRepository.deleteAll();
         userRepository.deleteAll();
         companyRepository.deleteAll();
+    }
+
+    @Test
+    void companyAdminCanConfigureAvailabilityAndBlocksForOwnResource() throws Exception {
+        Company company = activeCompany("availability-company");
+        Resource resource = resourceRepository.save(Resource.create(company.getId(), "Studio", null, ResourceType.SPACE, 1, ResourceVisibility.MEMBERS));
+        String token = companyAdminToken(company);
+
+        mockMvc.perform(post("/api/v1/companies/{companyId}/resources/{resourceId}/availability-rules", company.getId(), resource.getId())
+                .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"weekday\":1,\"startLocalTime\":\"09:00:00\",\"endLocalTime\":\"17:00:00\"}"))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.weekday").value(1));
+
+        mockMvc.perform(post("/api/v1/companies/{companyId}/resources/{resourceId}/blocks", company.getId(), resource.getId())
+                .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"startAt\":\"2026-10-05T12:00:00Z\",\"endAt\":\"2026-10-05T13:00:00Z\",\"reason\":\"Maintenance\",\"blockType\":\"MAINTENANCE\"}"))
+            .andExpect(status().isCreated())
+            .andExpect(jsonPath("$.blockType").value("MAINTENANCE"));
     }
 
     @Test

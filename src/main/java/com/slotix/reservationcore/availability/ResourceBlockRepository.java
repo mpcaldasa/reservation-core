@@ -1,0 +1,1 @@
+package com.slotix.reservationcore.availability; import org.springframework.data.jpa.repository.*; import java.util.*; public interface ResourceBlockRepository extends JpaRepository<ResourceBlock,UUID>{List<ResourceBlock> findByCompanyIdAndResourceIdAndDeletedAtIsNullOrderByStartAtAsc(UUID c,UUID r);}
