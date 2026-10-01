@@ -39,4 +39,10 @@ public class ResourceController {
         return ResponseEntity.status(HttpStatus.CREATED)
             .body(resourceService.create(companyId, request));
     }
+
+    @PostMapping("/{resourceId}/activate")
+    @PreAuthorize("hasRole('COMPANY_ADMIN')")
+    public ResourceResponse activate(@PathVariable UUID companyId, @PathVariable UUID resourceId) {
+        return resourceService.activate(companyId, resourceId);
+    }
 }

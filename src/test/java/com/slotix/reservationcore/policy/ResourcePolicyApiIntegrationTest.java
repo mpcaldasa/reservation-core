@@ -4,6 +4,9 @@ import com.slotix.reservationcore.PostgresIntegrationTestSupport;
 import com.slotix.reservationcore.availability.AvailabilityRule;
 import com.slotix.reservationcore.availability.AvailabilityRuleRepository;
 import com.slotix.reservationcore.availability.ResourceBlockRepository;
+import com.slotix.reservationcore.booking.BookingRepository;
+import com.slotix.reservationcore.booking.BookingResourceRepository;
+import com.slotix.reservationcore.booking.IdempotencyKeyRepository;
 import com.slotix.reservationcore.company.Company;
 import com.slotix.reservationcore.company.CompanyRepository;
 import com.slotix.reservationcore.common.JwtService;
@@ -49,9 +52,15 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
     @Autowired private ResourcePolicyRepository assignments;
     @Autowired private AvailabilityRuleRepository rules;
     @Autowired private ResourceBlockRepository blocks;
+    @Autowired private BookingRepository bookings;
+    @Autowired private BookingResourceRepository bookingResources;
+    @Autowired private IdempotencyKeyRepository keys;
 
     @BeforeEach
     void clean() {
+        keys.deleteAll();
+        bookingResources.deleteAll();
+        bookings.deleteAll();
         blocks.deleteAll();
         rules.deleteAll();
         assignments.deleteAll();
@@ -161,8 +170,10 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
     }
 
     private Resource resource(Company c) {
-        return resources.save(Resource.create(c.getId(), "Room " + UUID.randomUUID(), null,
-            ResourceType.SPACE, 1, ResourceVisibility.MEMBERS));
+        Resource resource = Resource.create(c.getId(), "Room " + UUID.randomUUID(), null,
+            ResourceType.SPACE, 1, ResourceVisibility.MEMBERS);
+        resource.activate();
+        return resources.save(resource);
     }
 
     private BookingPolicy policy(Company c, int min, int max, int increment, int notice, int advance) {

@@ -103,6 +103,12 @@ public class Resource {
         return status;
     }
 
+    public void activate() {
+        if (deletedAt != null) throw new IllegalStateException("A deleted resource cannot be activated");
+        status = ResourceStatus.ACTIVE;
+        updatedAt = Instant.now();
+    }
+
     public ResourceVisibility getVisibility() {
         return visibility;
     }

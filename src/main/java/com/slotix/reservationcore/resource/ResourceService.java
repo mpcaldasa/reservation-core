@@ -59,4 +59,15 @@ public class ResourceService {
 
         return ResourceResponse.from(resourceRepository.save(resource));
     }
+
+    @Transactional
+    public ResourceResponse activate(UUID companyId, UUID resourceId) {
+        tenantAccessService.requireActiveMembership(companyId);
+        companyRepository.findById(companyId).filter(Company::isActive)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "Company is not active"));
+        Resource resource = resourceRepository.findByIdAndCompanyIdAndDeletedAtIsNull(resourceId, companyId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Resource not found"));
+        resource.activate();
+        return ResourceResponse.from(resource);
+    }
 }

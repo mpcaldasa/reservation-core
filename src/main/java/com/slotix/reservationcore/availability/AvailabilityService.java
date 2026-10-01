@@ -1,6 +1,8 @@
 package com.slotix.reservationcore.availability;
 
 import com.slotix.reservationcore.common.TenantAccessService;
+import com.slotix.reservationcore.booking.BookingResourceRepository;
+import com.slotix.reservationcore.booking.BookingResource;
 import com.slotix.reservationcore.company.Company;
 import com.slotix.reservationcore.company.CompanyRepository;
 import com.slotix.reservationcore.policy.BookingPolicy;
@@ -8,6 +10,7 @@ import com.slotix.reservationcore.policy.BookingPolicyRepository;
 import com.slotix.reservationcore.policy.ResourcePolicy;
 import com.slotix.reservationcore.policy.ResourcePolicyRepository;
 import com.slotix.reservationcore.resource.ResourceRepository;
+import com.slotix.reservationcore.resource.ResourceStatus;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -34,18 +37,20 @@ public class AvailabilityService {
     private final ResourceRepository resources;
     private final ResourcePolicyRepository assignments;
     private final BookingPolicyRepository policies;
+    private final BookingResourceRepository reservations;
     private final TenantAccessService access;
 
     public AvailabilityService(AvailabilityRuleRepository rules, ResourceBlockRepository blocks,
                                CompanyRepository companies, ResourceRepository resources,
                                ResourcePolicyRepository assignments, BookingPolicyRepository policies,
-                               TenantAccessService access) {
+                               BookingResourceRepository reservations, TenantAccessService access) {
         this.rules = rules;
         this.blocks = blocks;
         this.companies = companies;
         this.resources = resources;
         this.assignments = assignments;
         this.policies = policies;
+        this.reservations = reservations;
         this.access = access;
     }
 
@@ -55,8 +60,9 @@ public class AvailabilityService {
         if (durationMinutes <= 0) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "durationMinutes must be greater than zero");
         }
-        resources.findByIdAndCompanyIdAndDeletedAtIsNull(resourceId, companyId)
+        var resource = resources.findByIdAndCompanyIdAndDeletedAtIsNull(resourceId, companyId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Resource not found"));
+        if (resource.getStatus() != ResourceStatus.ACTIVE) return List.of();
         Company company = companies.findById(companyId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Company not found"));
         ZoneId zone = ZoneId.of(company.getTimezone());
@@ -67,6 +73,9 @@ public class AvailabilityService {
                 && "ACTIVE".equals(policy.getStatus()))
             .collect(Collectors.toMap(BookingPolicy::getId, Function.identity()));
         List<ResourceBlock> blocked = blocks.findByCompanyIdAndResourceIdAndDeletedAtIsNullOrderByStartAtAsc(companyId, resourceId);
+        Instant dayStart = date.atStartOfDay(zone).toInstant();
+        Instant dayEnd = date.plusDays(1).atStartOfDay(zone).toInstant();
+        List<BookingResource> reserved = reservations.activeInRange(resourceId, dayStart, dayEnd);
         short weekday = (short) (date.getDayOfWeek().getValue() % 7);
         List<AvailabilitySlot> result = new ArrayList<>();
 
@@ -90,6 +99,8 @@ public class AvailabilityService {
                 if (start.isBefore(now.plus(Duration.ofMinutes(policy.getMinNoticeMinutes())))
                     || start.isAfter(now.plus(Duration.ofDays(policy.getMaxAdvanceDays())))) continue;
                 if (blocked.stream().anyMatch(block -> start.isBefore(block.getEndAt()) && end.isAfter(block.getStartAt()))) continue;
+                if (reserved.stream().filter(row -> start.isBefore(row.getEndAt()) && end.isAfter(row.getStartAt())).count()
+                    >= resource.getCapacity()) continue;
                 result.add(new AvailabilitySlot(start, end));
             }
         }
