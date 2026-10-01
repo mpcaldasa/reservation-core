@@ -4,6 +4,8 @@ import com.slotix.reservationcore.PostgresIntegrationTestSupport;
 import com.slotix.reservationcore.common.JwtService;
 import com.slotix.reservationcore.availability.AvailabilityRuleRepository;
 import com.slotix.reservationcore.availability.ResourceBlockRepository;
+import com.slotix.reservationcore.policy.BookingPolicyRepository;
+import com.slotix.reservationcore.policy.ResourcePolicyRepository;
 import com.slotix.reservationcore.company.Company;
 import com.slotix.reservationcore.company.CompanyRepository;
 import com.slotix.reservationcore.identity.CompanyMembership;
@@ -40,11 +42,15 @@ class ResourceApiIntegrationTest extends PostgresIntegrationTestSupport {
     @Autowired private ResourceRepository resourceRepository;
     @Autowired private AvailabilityRuleRepository availabilityRuleRepository;
     @Autowired private ResourceBlockRepository resourceBlockRepository;
+    @Autowired private ResourcePolicyRepository resourcePolicyRepository;
+    @Autowired private BookingPolicyRepository bookingPolicyRepository;
 
     @BeforeEach
     void cleanDatabase() {
         resourceBlockRepository.deleteAll();
         availabilityRuleRepository.deleteAll();
+        resourcePolicyRepository.deleteAll();
+        bookingPolicyRepository.deleteAll();
         resourceRepository.deleteAll();
         companyMembershipRepository.deleteAll();
         userRepository.deleteAll();
