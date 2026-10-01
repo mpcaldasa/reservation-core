@@ -1,12 +1,14 @@
 package com.slotix.reservationcore.booking;
 
 import com.slotix.reservationcore.availability.AvailabilityService;
+import com.slotix.reservationcore.audit.AuditService;
 import com.slotix.reservationcore.common.AuthenticatedPrincipal;
 import com.slotix.reservationcore.common.TenantAccessService;
 import com.slotix.reservationcore.company.Company;
 import com.slotix.reservationcore.company.CompanyRepository;
 import com.slotix.reservationcore.identity.CompanyMembershipRepository;
 import com.slotix.reservationcore.policy.BookingPolicy;
+import com.slotix.reservationcore.notification.NotificationOutboxService;
 import com.slotix.reservationcore.policy.BookingPolicyRepository;
 import com.slotix.reservationcore.policy.ResourcePolicyRepository;
 import com.slotix.reservationcore.resource.Resource;
@@ -44,12 +46,14 @@ public class BookingService {
     private final AvailabilityService availability;
     private final TenantAccessService access;
     private final EntityManager entityManager;
+    private final AuditService audit;
+    private final NotificationOutboxService notifications;
 
     public BookingService(BookingRepository bookings, BookingResourceRepository occupied, IdempotencyKeyRepository keys,
                           CompanyRepository companies, CompanyMembershipRepository memberships, ResourceRepository resources,
                           ResourcePolicyRepository assignments,
                           BookingPolicyRepository policies, AvailabilityService availability, TenantAccessService access,
-                          EntityManager entityManager) {
+                          EntityManager entityManager, AuditService audit, NotificationOutboxService notifications) {
         this.bookings = bookings;
         this.occupied = occupied;
         this.keys = keys;
@@ -61,6 +65,8 @@ public class BookingService {
         this.availability = availability;
         this.access = access;
         this.entityManager = entityManager;
+        this.audit = audit;
+        this.notifications = notifications;
     }
 
     @Transactional
@@ -119,6 +125,9 @@ public class BookingService {
             company.getTimezone(), request.notes()));
         occupied.saveAndFlush(BookingResource.create(booking, resource.getCapacity() == 1));
         keys.save(IdempotencyKey.create(companyId, key, hash, booking.getId()));
+        audit.record(companyId, principal.userId(), "BOOKING_CREATED", "BOOKING", booking.getId(), null,
+            "{\"status\":\"" + booking.getStatus() + "\"}");
+        notifications.enqueueBookingEvent(companyId, booking.getId(), "BOOKING_CREATED");
         entityManager.refresh(booking);
         return BookingResponse.from(booking);
     }
@@ -168,12 +177,16 @@ public class BookingService {
                 throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "Customer cancellation is outside the policy limit");
             }
         }
+        BookingStatus previousStatus = booking.getStatus();
         booking.cancel(principal().userId(), reason);
         bookings.flush();
         BookingResource row = occupied.findByIdBookingIdAndIdResourceId(bookingId, booking.getResourceId())
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Booking allocation not found"));
         row.cancel();
         occupied.flush();
+        audit.record(companyId, principal().userId(), "BOOKING_CANCELLED", "BOOKING", bookingId,
+            "{\"status\":\"" + previousStatus + "\"}", "{\"status\":\"CANCELLED\"}");
+        notifications.enqueueBookingEvent(companyId, bookingId, "BOOKING_CANCELLED");
         return BookingResponse.from(booking);
     }
 

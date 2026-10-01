@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
 import java.util.List;
@@ -50,9 +51,13 @@ class ResourceApiIntegrationTest extends PostgresIntegrationTestSupport {
     @Autowired private BookingRepository bookingRepository;
     @Autowired private BookingResourceRepository bookingResourceRepository;
     @Autowired private IdempotencyKeyRepository idempotencyKeyRepository;
+    @Autowired private JdbcTemplate jdbc;
 
     @BeforeEach
     void cleanDatabase() {
+        jdbc.update("delete from notification_deliveries");
+        jdbc.update("delete from outbox_events");
+        jdbc.update("delete from audit_logs");
         idempotencyKeyRepository.deleteAll();
         bookingResourceRepository.deleteAll();
         bookingRepository.deleteAll();

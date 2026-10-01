@@ -13,6 +13,7 @@ import com.slotix.reservationcore.identity.CompanyMembershipRepository;
 import com.slotix.reservationcore.identity.MembershipRole;
 import com.slotix.reservationcore.identity.User;
 import com.slotix.reservationcore.identity.UserRepository;
+import com.slotix.reservationcore.notification.NotificationQueueWorker;
 import com.slotix.reservationcore.policy.BookingPolicy;
 import com.slotix.reservationcore.policy.BookingPolicyRepository;
 import com.slotix.reservationcore.policy.ResourcePolicy;
@@ -28,6 +29,7 @@ import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 import org.springframework.transaction.support.TransactionTemplate;
 
@@ -68,9 +70,14 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
     @Autowired private BookingResourceRepository bookingResources;
     @Autowired private IdempotencyKeyRepository keys;
     @Autowired private TransactionTemplate transactions;
+    @Autowired private JdbcTemplate jdbc;
+    @Autowired private NotificationQueueWorker queueWorker;
 
     @BeforeEach
     void clean() {
+        jdbc.update("delete from notification_deliveries");
+        jdbc.update("delete from outbox_events");
+        jdbc.update("delete from audit_logs");
         keys.deleteAll();
         bookingResources.deleteAll();
         bookings.deleteAll();
@@ -111,6 +118,10 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
                 .header("Idempotency-Key", "after-cancel").contentType(MediaType.APPLICATION_JSON).content(request))
             .andExpect(status().isCreated());
         assertEquals(2, bookings.count());
+        assertEquals(3L, jdbc.queryForObject("select count(*) from audit_logs", Long.class));
+        assertEquals(3L, jdbc.queryForObject("select count(*) from outbox_events", Long.class));
+        queueWorker.stagePendingDeliveries();
+        assertEquals(3L, jdbc.queryForObject("select count(*) from notification_deliveries where status='PENDING'", Long.class));
     }
 
     @Test
