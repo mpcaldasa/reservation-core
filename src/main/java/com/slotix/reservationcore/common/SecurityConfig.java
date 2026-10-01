@@ -49,6 +49,7 @@ public class SecurityConfig {
                 .authenticationEntryPoint(restAuthenticationEntryPoint)
             )
             .authorizeHttpRequests(auth -> auth
+                .requestMatchers("/actuator/health", "/actuator/health/**", "/v3/api-docs/**", "/swagger-ui/**", "/swagger-ui.html").permitAll()
                 .requestMatchers("/api/users/login").permitAll()
                 .requestMatchers(HttpMethod.POST, "/api/users").hasAuthority("ROLE_COMPANY_ADMIN")
                 .requestMatchers(HttpMethod.POST, "/api/companies").hasAuthority("ROLE_PLATFORM_ADMIN")
