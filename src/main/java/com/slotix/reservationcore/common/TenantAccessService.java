@@ -33,4 +33,12 @@ public class TenantAccessService {
             throw new AccessDeniedException("You do not have access to this company");
         }
     }
+
+    public UUID currentUserId() {
+        Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
+        if (authentication == null || !(authentication.getPrincipal() instanceof AuthenticatedPrincipal principal)) {
+            throw new AccessDeniedException("An authenticated company context is required");
+        }
+        return principal.userId();
+    }
 }

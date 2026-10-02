@@ -1,6 +1,7 @@
 package com.slotix.reservationcore.policy;
 
 import com.slotix.reservationcore.common.TenantAccessService;
+import com.slotix.reservationcore.audit.AuditService;
 import com.slotix.reservationcore.resource.ResourceRepository;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
@@ -16,13 +17,15 @@ public class ResourcePolicyService {
     private final BookingPolicyRepository policies;
     private final ResourceRepository resources;
     private final TenantAccessService access;
+    private final AuditService audit;
 
     public ResourcePolicyService(ResourcePolicyRepository assignments, BookingPolicyRepository policies,
-                                 ResourceRepository resources, TenantAccessService access) {
+                                 ResourceRepository resources, TenantAccessService access, AuditService audit) {
         this.assignments = assignments;
         this.policies = policies;
         this.resources = resources;
         this.access = access;
+        this.audit = audit;
     }
 
     @Transactional
@@ -41,8 +44,12 @@ public class ResourcePolicyService {
         if (overlaps) {
             throw new ResponseStatusException(HttpStatus.CONFLICT, "Policy assignment overlaps an existing period");
         }
-        return ResourcePolicyResponse.from(assignments.save(ResourcePolicy.create(resourceId, request.policyId(),
-            request.effectiveFrom(), request.effectiveTo())));
+        ResourcePolicy assignment = assignments.save(ResourcePolicy.create(resourceId, request.policyId(),
+            request.effectiveFrom(), request.effectiveTo()));
+        audit.record(companyId, access.currentUserId(), "RESOURCE_POLICY_ASSIGNED", "RESOURCE", resourceId, null,
+            "{\"policyId\":\"" + request.policyId() + "\",\"effectiveFrom\":\"" + request.effectiveFrom()
+                + "\",\"effectiveTo\":" + (request.effectiveTo() == null ? "null" : "\"" + request.effectiveTo() + "\"") + "}");
+        return ResourcePolicyResponse.from(assignment);
     }
 
     @Transactional(readOnly = true)

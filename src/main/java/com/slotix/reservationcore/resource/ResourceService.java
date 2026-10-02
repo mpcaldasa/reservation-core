@@ -1,6 +1,7 @@
 package com.slotix.reservationcore.resource;
 
 import com.slotix.reservationcore.common.TenantAccessService;
+import com.slotix.reservationcore.audit.AuditService;
 import com.slotix.reservationcore.company.Company;
 import com.slotix.reservationcore.company.CompanyRepository;
 import org.springframework.http.HttpStatus;
@@ -17,15 +18,18 @@ public class ResourceService {
     private final ResourceRepository resourceRepository;
     private final CompanyRepository companyRepository;
     private final TenantAccessService tenantAccessService;
+    private final AuditService audit;
 
     public ResourceService(
         ResourceRepository resourceRepository,
         CompanyRepository companyRepository,
-        TenantAccessService tenantAccessService
+        TenantAccessService tenantAccessService,
+        AuditService audit
     ) {
         this.resourceRepository = resourceRepository;
         this.companyRepository = companyRepository;
         this.tenantAccessService = tenantAccessService;
+        this.audit = audit;
     }
 
     @Transactional(readOnly = true)
@@ -57,7 +61,10 @@ public class ResourceService {
             request.visibility()
         );
 
-        return ResourceResponse.from(resourceRepository.save(resource));
+        Resource saved = resourceRepository.save(resource);
+        audit.record(companyId, tenantAccessService.currentUserId(), "RESOURCE_CREATED", "RESOURCE", saved.getId(), null,
+            "{\"status\":\"DRAFT\",\"resourceType\":\"" + saved.getResourceType() + "\"}");
+        return ResourceResponse.from(saved);
     }
 
     @Transactional
@@ -67,7 +74,10 @@ public class ResourceService {
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "Company is not active"));
         Resource resource = resourceRepository.findByIdAndCompanyIdAndDeletedAtIsNull(resourceId, companyId)
             .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Resource not found"));
+        String previousStatus = resource.getStatus().name();
         resource.activate();
+        audit.record(companyId, tenantAccessService.currentUserId(), "RESOURCE_ACTIVATED", "RESOURCE", resourceId,
+            "{\"status\":\"" + previousStatus + "\"}", "{\"status\":\"ACTIVE\"}");
         return ResourceResponse.from(resource);
     }
 }
