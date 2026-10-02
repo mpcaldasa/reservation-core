@@ -58,6 +58,14 @@ public class Booking {
         updatedAt = cancelledAt;
     }
 
+    public void decide(BookingStatus decision) {
+        if (status != BookingStatus.PENDING || (decision != BookingStatus.CONFIRMED && decision != BookingStatus.REJECTED)) {
+            throw new IllegalStateException("Only pending bookings can be approved or rejected");
+        }
+        status = decision;
+        updatedAt = Instant.now();
+    }
+
     public UUID getId() { return id; }
     public UUID getCompanyId() { return companyId; }
     public Long getBookingNumber() { return bookingNumber; }

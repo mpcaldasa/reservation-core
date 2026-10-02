@@ -168,6 +168,36 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
         assertEquals(1, bookings.count());
     }
 
+    @Test
+    void pendingBookingsCanBeApprovedOrRejectedOnlyByStaff() throws Exception {
+        Fixture fixture = fixture(1, true);
+        String body = body(fixture);
+        String pending = mvc.perform(post("/api/v1/bookings").header("Authorization", bearer(fixture.token()))
+                .header("Idempotency-Key", "pending-one").contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("PENDING"))
+            .andReturn().getResponse().getContentAsString();
+        UUID firstId = UUID.fromString(json.readTree(pending).get("id").asText());
+
+        mvc.perform(post("/api/v1/bookings/{id}/approve", firstId).header("Authorization", bearer(fixture.token())))
+            .andExpect(status().isForbidden());
+
+        User staff = users.save(User.create(UUID.randomUUID() + "@example.test", "unused", "Booking administrator"));
+        memberships.save(CompanyMembership.create(fixture.companyId(), staff.getId(), Set.of(MembershipRole.COMPANY_ADMIN)));
+        String staffToken = jwt.generateToken(staff.getId(), fixture.companyId(), List.of("COMPANY_ADMIN"));
+        mvc.perform(post("/api/v1/bookings/{id}/reject", firstId).header("Authorization", bearer(staffToken)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("REJECTED"));
+
+        String second = mvc.perform(post("/api/v1/bookings").header("Authorization", bearer(fixture.token()))
+                .header("Idempotency-Key", "pending-two").contentType(MediaType.APPLICATION_JSON).content(body))
+            .andExpect(status().isCreated()).andExpect(jsonPath("$.status").value("PENDING"))
+            .andReturn().getResponse().getContentAsString();
+        UUID secondId = UUID.fromString(json.readTree(second).get("id").asText());
+        mvc.perform(post("/api/v1/bookings/{id}/approve", secondId).header("Authorization", bearer(staffToken)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CONFIRMED"));
+        mvc.perform(post("/api/v1/bookings/{id}/reject", secondId).header("Authorization", bearer(staffToken)))
+            .andExpect(status().isUnprocessableContent());
+    }
+
     private int createConcurrently(Fixture fixture, String key, CountDownLatch ready, CountDownLatch start) throws Exception {
         ready.countDown();
         start.await();
@@ -177,6 +207,10 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
     }
 
     private Fixture fixture(int capacity) {
+        return fixture(capacity, false);
+    }
+
+    private Fixture fixture(int capacity, boolean approvalRequired) {
         Company company = Company.create("Booking company", "Booking company", "booking-" + UUID.randomUUID(), "booking@example.test");
         company.activate();
         company = companies.save(company);
@@ -187,7 +221,7 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
         resource.activate();
         resource = resources.save(resource);
         BookingPolicy policy = policies.save(BookingPolicy.create(company.getId(), "Standard", 30, 60, 30, 0, 30,
-            0, false, true));
+            0, approvalRequired, true));
         assignments.save(ResourcePolicy.create(resource.getId(), policy.getId(), Instant.now().minusSeconds(60), null));
         LocalDate date = LocalDate.now().plusDays(2);
         rules.save(AvailabilityRule.create(company.getId(), resource.getId(),

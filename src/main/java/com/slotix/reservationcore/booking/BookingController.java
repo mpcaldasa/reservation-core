@@ -51,6 +51,18 @@ public class BookingController {
         return service.cancel(companyId(), bookingId, request == null ? null : request.reason());
     }
 
+    @PostMapping("/bookings/{bookingId}/approve")
+    @PreAuthorize("hasAnyRole('COMPANY_ADMIN','BOOKING_MANAGER')")
+    public BookingResponse approve(@PathVariable UUID bookingId) {
+        return service.decide(companyId(), bookingId, BookingStatus.CONFIRMED);
+    }
+
+    @PostMapping("/bookings/{bookingId}/reject")
+    @PreAuthorize("hasAnyRole('COMPANY_ADMIN','BOOKING_MANAGER')")
+    public BookingResponse reject(@PathVariable UUID bookingId) {
+        return service.decide(companyId(), bookingId, BookingStatus.REJECTED);
+    }
+
     private UUID companyId() {
         return ((AuthenticatedPrincipal) SecurityContextHolder.getContext().getAuthentication().getPrincipal()).companyId();
     }

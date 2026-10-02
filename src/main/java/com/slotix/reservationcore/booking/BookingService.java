@@ -190,6 +190,30 @@ public class BookingService {
         return BookingResponse.from(booking);
     }
 
+    @Transactional
+    public BookingResponse decide(UUID companyId, UUID bookingId, BookingStatus decision) {
+        access.requireActiveMembership(companyId);
+        if (!isStaff()) throw new AccessDeniedException("Only company staff can decide pending bookings");
+        Booking booking = bookings.findByIdAndCompanyId(bookingId, companyId)
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
+        BookingStatus previous = booking.getStatus();
+        try {
+            booking.decide(decision);
+        } catch (IllegalStateException ex) {
+            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage());
+        }
+        bookings.flush();
+        BookingResource allocation = occupied.findByIdBookingIdAndIdResourceId(bookingId, booking.getResourceId())
+            .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Booking allocation not found"));
+        allocation.setStatus(decision);
+        occupied.flush();
+        String before = "{\"status\":\"" + previous + "\"}";
+        String after = "{\"status\":\"" + decision + "\"}";
+        audit.record(companyId, principal().userId(), "BOOKING_" + decision, "BOOKING", bookingId, before, after);
+        notifications.enqueueBookingEvent(companyId, bookingId, "BOOKING_" + decision);
+        return BookingResponse.from(booking);
+    }
+
     private void requireViewPermission(Booking booking) {
         if (!isStaff() && !booking.getCustomerUserId().equals(principal().userId())) {
             throw new AccessDeniedException("You cannot access this booking");
