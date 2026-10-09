@@ -1,0 +1,1 @@
+package com.slotix.reservationcore.availability; import java.time.*; import java.util.*; public record ResourceBlockResponse(UUID id,Instant startAt,Instant endAt,String reason,ResourceBlockType blockType){static ResourceBlockResponse from(ResourceBlock b){return new ResourceBlockResponse(b.getId(),b.getStartAt(),b.getEndAt(),b.getReason(),b.getBlockType());}}

@@ -1,0 +1,1 @@
+package com.slotix.reservationcore.availability; import jakarta.validation.constraints.*; import java.time.*; public record CreateResourceBlockRequest(@NotNull Instant startAt,@NotNull Instant endAt,@NotBlank String reason,@NotNull ResourceBlockType blockType){}

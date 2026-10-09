@@ -12,9 +12,6 @@ public class User {
     @GeneratedValue
     private UUID id;
 
-    @Column(name = "company_id", nullable = false)
-    private UUID companyId;
-
     @Column(name = "email", nullable = false, columnDefinition = "citext")
     private String email;
 
@@ -23,9 +20,6 @@ public class User {
 
     @Column(name = "full_name", nullable = false)
     private String fullName;
-
-    @Column(name = "role", nullable = false)
-    private String role;
 
     @Column(name = "status", nullable = false)
     private String status;
@@ -39,17 +33,18 @@ public class User {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    @Column(name = "credential_version", nullable = false)
+    private int credentialVersion;
+
     protected User() {
-        // Constructor vacío requerido por JPA/Hibernate
+        // Required by JPA/Hibernate.
     }
 
-    public static User create(UUID companyId, String email, String passwordHash, String fullName, String role) {
+    public static User create(String email, String passwordHash, String fullName) {
         User user = new User();
-        user.companyId = companyId;
         user.email = email;
         user.passwordHash = passwordHash;
         user.fullName = fullName;
-        user.role = role;
         user.status = "ACTIVE";
         user.createdAt = Instant.now();
         user.updatedAt = Instant.now();
@@ -58,10 +53,6 @@ public class User {
 
     public UUID getId() {
         return id;
-    }
-
-    public UUID getCompanyId() {
-        return companyId;
     }
 
     public String getEmail() {
@@ -74,10 +65,6 @@ public class User {
 
     public String getFullName() {
         return fullName;
-    }
-
-    public String getRole() {
-        return role;
     }
 
     public String getStatus() {
@@ -94,5 +81,36 @@ public class User {
 
     public Instant getDeletedAt() {
         return deletedAt;
+    }
+
+    public int getCredentialVersion() { return credentialVersion; }
+
+    public boolean isActive() {
+        return "ACTIVE".equals(status) && deletedAt == null;
+    }
+
+    public void changePasswordHash(String passwordHash, Instant occurredAt) {
+        if (passwordHash == null || passwordHash.isBlank()) {
+            throw new IllegalArgumentException("Password hash must not be blank");
+        }
+        this.passwordHash = passwordHash;
+        this.updatedAt = occurredAt;
+        this.credentialVersion++;
+    }
+
+    public boolean deactivate(Instant occurredAt) {
+        if (!isActive()) return false;
+        status = "INACTIVE";
+        updatedAt = occurredAt;
+        credentialVersion++;
+        return true;
+    }
+
+    public boolean reactivate(Instant occurredAt) {
+        if (deletedAt != null || isActive()) return false;
+        status = "ACTIVE";
+        updatedAt = occurredAt;
+        credentialVersion++;
+        return true;
     }
 }

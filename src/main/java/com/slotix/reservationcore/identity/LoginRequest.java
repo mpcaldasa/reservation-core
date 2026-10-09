@@ -1,16 +1,22 @@
 package com.slotix.reservationcore.identity;
 
 import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
 
 import java.util.UUID;
 
 public record LoginRequest(
+    @NotNull(message = "companyId is required")
     UUID companyId,
 
-    @NotBlank(message = "email es obligatorio")
+    @NotBlank(message = "email is required")
     String email,
 
-    @NotBlank(message = "password es obligatorio")
+    @NotBlank(message = "password is required")
     String password
 ) {
+    @Override
+    public String toString() {
+        return "LoginRequest[companyId=" + companyId + ", email=" + email + ", password=[REDACTED]]";
+    }
 }
