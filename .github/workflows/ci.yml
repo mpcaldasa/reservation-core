@@ -19,5 +19,16 @@ jobs:
           cache: maven
       - name: Run integration tests with Testcontainers
         run: ./mvnw -B verify
+      - name: Validate local service configuration
+        run: docker compose config --quiet
+      - uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: 1.10.0
+      - name: Check Terraform formatting
+        run: terraform fmt -check -recursive infra/aws
+      - name: Validate AWS infrastructure
+        run: |
+          terraform -chdir=infra/aws init -backend=false -input=false
+          terraform -chdir=infra/aws validate -no-color
       - name: Build application image
         run: docker build -t slotix-reservation-core:ci .
