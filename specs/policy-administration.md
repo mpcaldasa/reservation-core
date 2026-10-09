@@ -34,4 +34,4 @@ Create and update share the policy fields: name, minimum and maximum duration, s
 
 ## Verification status
 
-Integration coverage verifies assignment overlap and interval errors, policy replacement, assignment closure and removal, active-reservation protection, and serialization of overlapping concurrent assignments. Policy lifecycle permissions and historical cancellation behavior still need automated coverage.
+Integration coverage verifies assignment overlap and interval errors, assigned-policy lifecycle restrictions, unassigned policy updates, idempotent activation/deactivation, policy replacement, assignment closure and removal, active-reservation protection, and serialization of overlapping concurrent assignments. Historical cancellation behavior still needs automated coverage.

@@ -334,6 +334,54 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
         assertEquals(1, assignments.findByIdResourceIdOrderByIdEffectiveFromAsc(resource.getId()).size());
     }
 
+    @Test
+    void unassignedPolicyCanBeEditedAndLifecycleNoOpsDoNotDuplicateAudit() throws Exception {
+        Company company = company();
+        BookingPolicy policy = policy(company, 30, 120, 15, 0, 30);
+        String token = token(company, MembershipRole.COMPANY_ADMIN);
+        String endpoint = "/api/v1/companies/" + company.getId() + "/booking-policies/" + policy.getId();
+        String update = """
+            {"name":"Updated policy","minDurationMinutes":30,"maxDurationMinutes":120,
+             "slotIncrementMinutes":15,"minNoticeMinutes":0,"maxAdvanceDays":30,
+             "cancellationNoticeMinutes":0,"approvalRequired":false,"allowCustomerCancel":true}
+            """;
+
+        mvc.perform(put(endpoint).header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
+                .content(update))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Updated policy"));
+        mvc.perform(post(endpoint + "/deactivate").header("Authorization", bearer(token)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("INACTIVE"));
+        mvc.perform(post(endpoint + "/deactivate").header("Authorization", bearer(token)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("INACTIVE"));
+        mvc.perform(post(endpoint + "/activate").header("Authorization", bearer(token)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"));
+        mvc.perform(post(endpoint + "/activate").header("Authorization", bearer(token)))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"));
+
+        assertEquals(1L, jdbc.queryForObject("select count(*) from audit_logs where action = 'BOOKING_POLICY_UPDATED'", Long.class));
+        assertEquals(1L, jdbc.queryForObject("select count(*) from audit_logs where action = 'BOOKING_POLICY_DEACTIVATED'", Long.class));
+        assertEquals(1L, jdbc.queryForObject("select count(*) from audit_logs where action = 'BOOKING_POLICY_ACTIVATED'", Long.class));
+    }
+
+    @Test
+    void assignedPolicyCannotBeDeactivatedAndCustomersCannotManagePolicyLifecycle() throws Exception {
+        Company company = company();
+        Resource resource = resource(company);
+        BookingPolicy policy = policy(company, 30, 120, 15, 0, 30);
+        Instant from = Instant.now().minusSeconds(60).truncatedTo(ChronoUnit.MICROS);
+        assignments.saveAndFlush(ResourcePolicy.create(resource.getId(), policy.getId(), from, null));
+        String endpoint = "/api/v1/companies/" + company.getId() + "/booking-policies/" + policy.getId();
+
+        mvc.perform(post(endpoint + "/deactivate")
+                .header("Authorization", bearer(token(company, MembershipRole.CUSTOMER))))
+            .andExpect(status().isForbidden());
+        mvc.perform(post(endpoint + "/deactivate")
+                .header("Authorization", bearer(token(company, MembershipRole.COMPANY_ADMIN))))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("BOOKING_POLICY_HAS_ACTIVE_ASSIGNMENTS"));
+        assertEquals("ACTIVE", policies.findById(policy.getId()).orElseThrow().getStatus());
+    }
+
     private int assignAfterStart(String endpoint, String token, String request, CountDownLatch ready,
                                  CountDownLatch start) throws Exception {
         ready.countDown();
