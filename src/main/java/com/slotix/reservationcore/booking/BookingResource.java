@@ -37,7 +37,12 @@ public class BookingResource {
 
     public void cancel() { status = BookingStatus.CANCELLED; }
     public void setStatus(BookingStatus status) { this.status = status; }
+    public void reschedule(Instant startAt, Instant endAt) {
+        this.startAt = startAt;
+        this.endAt = endAt;
+    }
     public BookingResourceId getId() { return id; }
+    public BookingStatus getStatus() { return status; }
     public Instant getStartAt() { return startAt; }
     public Instant getEndAt() { return endAt; }
 }

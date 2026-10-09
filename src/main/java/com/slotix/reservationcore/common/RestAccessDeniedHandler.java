@@ -9,9 +9,6 @@ import org.springframework.security.web.access.AccessDeniedHandler;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 @Component
 public class RestAccessDeniedHandler implements AccessDeniedHandler {
 
@@ -24,13 +21,10 @@ public class RestAccessDeniedHandler implements AccessDeniedHandler {
         AccessDeniedException accessDeniedException
     ) throws IOException {
 
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("status", HttpStatus.FORBIDDEN.value());
-        body.put("error", "You do not have permission to access this resource");
-
         response.setStatus(HttpStatus.FORBIDDEN.value());
         response.setContentType("application/json;charset=UTF-8");
         response.setCharacterEncoding("UTF-8");
-        objectMapper.writeValue(response.getWriter(), body);
+        objectMapper.writeValue(response.getWriter(), ApiErrorResponse.of(HttpStatus.FORBIDDEN.value(),
+            ApiErrorCode.ACCESS_DENIED, "You do not have permission to access this resource"));
     }
 }

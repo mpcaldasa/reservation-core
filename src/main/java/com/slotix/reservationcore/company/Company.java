@@ -60,8 +60,6 @@ public class Company {
         return company;
     }
 
-    // Getters only. State changes will be added with explicit domain operations.
-
     public UUID getId() {
         return id;
     }

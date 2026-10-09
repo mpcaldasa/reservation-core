@@ -7,6 +7,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -49,8 +50,43 @@ public class BookingPolicy {
         return policy;
     }
 
+    public boolean update(String name, int min, int max, int increment, int notice, int advance,
+                          int cancellation, boolean approval, boolean customerCancel, Instant updatedAt) {
+        boolean changed = !Objects.equals(this.name, name) || minDurationMinutes != min || maxDurationMinutes != max
+            || slotIncrementMinutes != increment || minNoticeMinutes != notice || maxAdvanceDays != advance
+            || cancellationNoticeMinutes != cancellation || approvalRequired != approval
+            || allowCustomerCancel != customerCancel;
+        if (!changed) return false;
+        this.name = name;
+        minDurationMinutes = min;
+        maxDurationMinutes = max;
+        slotIncrementMinutes = increment;
+        minNoticeMinutes = notice;
+        maxAdvanceDays = advance;
+        cancellationNoticeMinutes = cancellation;
+        approvalRequired = approval;
+        allowCustomerCancel = customerCancel;
+        this.updatedAt = updatedAt;
+        return true;
+    }
+
+    public boolean activate(Instant updatedAt) {
+        if ("ACTIVE".equals(status)) return false;
+        status = "ACTIVE";
+        this.updatedAt = updatedAt;
+        return true;
+    }
+
+    public boolean deactivate(Instant updatedAt) {
+        if ("INACTIVE".equals(status)) return false;
+        status = "INACTIVE";
+        this.updatedAt = updatedAt;
+        return true;
+    }
+
     public UUID getId() { return id; }
     public UUID getCompanyId() { return companyId; }
+    public String getName() { return name; }
     public int getMinDurationMinutes() { return minDurationMinutes; }
     public int getMaxDurationMinutes() { return maxDurationMinutes; }
     public int getSlotIncrementMinutes() { return slotIncrementMinutes; }
@@ -61,4 +97,6 @@ public class BookingPolicy {
     public boolean isAllowCustomerCancel() { return allowCustomerCancel; }
     public String getStatus() { return status; }
     public Instant getDeletedAt() { return deletedAt; }
+    public Instant getCreatedAt() { return createdAt; }
+    public Instant getUpdatedAt() { return updatedAt; }
 }

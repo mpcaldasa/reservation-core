@@ -75,6 +75,8 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
 
     @BeforeEach
     void clean() {
+        jdbc.update("delete from identity_email_deliveries");
+        jdbc.update("delete from company_invitations");
         jdbc.update("delete from notification_deliveries");
         jdbc.update("delete from outbox_events");
         jdbc.update("delete from audit_logs");
@@ -107,10 +109,12 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
         mvc.perform(post("/api/v1/bookings").header("Authorization", bearer(fixture.token()))
                 .header("Idempotency-Key", "same-key").contentType(MediaType.APPLICATION_JSON)
                 .content(request.replace("\"notes\":\"Original\"", "\"notes\":\"Changed\"")))
-            .andExpect(status().isUnprocessableContent());
+            .andExpect(status().isUnprocessableContent())
+            .andExpect(jsonPath("$.code").value("IDEMPOTENCY_KEY_REUSED"));
         mvc.perform(post("/api/v1/bookings").header("Authorization", bearer(fixture.token()))
                 .header("Idempotency-Key", "other-key").contentType(MediaType.APPLICATION_JSON).content(request))
-            .andExpect(status().isConflict());
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("BOOKING_SLOT_UNAVAILABLE"));
         mvc.perform(post("/api/v1/bookings/{id}/cancel", bookingId).header("Authorization", bearer(fixture.token()))
                 .contentType(MediaType.APPLICATION_JSON).content("{}"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
@@ -147,7 +151,9 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
             mvc.perform(post("/api/v1/bookings").header("Authorization", bearer(fixture.token()))
                     .header("Idempotency-Key", "capacity-" + index)
                     .contentType(MediaType.APPLICATION_JSON).content(body(fixture)))
-                .andExpect(index < 2 ? status().isCreated() : status().isConflict());
+                .andExpect(index < 2 ? status().isCreated() : status().isConflict())
+                .andExpect(index < 2 ? jsonPath("$.status").value("CONFIRMED")
+                    : jsonPath("$.code").value("BOOKING_SLOT_UNAVAILABLE"));
         }
         assertEquals(2, bookings.count());
     }

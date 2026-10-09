@@ -1,6 +1,8 @@
 package com.slotix.reservationcore.common;
 
+import com.slotix.reservationcore.identity.IdentityAuthenticationService;
 import io.jsonwebtoken.Claims;
+import io.jsonwebtoken.JwtException;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
@@ -13,57 +15,49 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
-import java.util.List;
 import java.util.UUID;
 
 @Component
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
+    private final JwtService jwt;
+    private final IdentityAuthenticationService identities;
 
-    private final JwtService jwtService;
-
-    public JwtAuthenticationFilter(JwtService jwtService) {
-        this.jwtService = jwtService;
+    public JwtAuthenticationFilter(JwtService jwt, IdentityAuthenticationService identities) {
+        this.jwt = jwt;
+        this.identities = identities;
     }
 
     @Override
-    protected void doFilterInternal(
-        @NonNull HttpServletRequest request,
-        @NonNull HttpServletResponse response,
-        @NonNull FilterChain filterChain
-    ) throws ServletException, IOException {
-
-        String authHeader = request.getHeader("Authorization");
-
-        if (authHeader != null && authHeader.startsWith("Bearer ")) {
-            try {
-                Claims claims = jwtService.parseAndValidate(authHeader.substring(7));
-
-                List<?> tokenRoles = claims.get("roles", List.class);
-                List<SimpleGrantedAuthority> authorities = tokenRoles == null
-                    ? List.of()
-                    : tokenRoles.stream()
-                        .map(String::valueOf)
-                        .map(role -> new SimpleGrantedAuthority("ROLE_" + role))
-                        .toList();
-
-                AuthenticatedPrincipal principal = new AuthenticatedPrincipal(
-                    UUID.fromString(claims.getSubject()),
-                    UUID.fromString(claims.get("companyId", String.class))
-                );
-
-                UsernamePasswordAuthenticationToken authentication =
-                    new UsernamePasswordAuthenticationToken(
-                        principal,
-                        null,
-                        authorities
-                    );
-
-                SecurityContextHolder.getContext().setAuthentication(authentication);
-            } catch (Exception ex) {
-                SecurityContextHolder.clearContext();
+    protected void doFilterInternal(@NonNull HttpServletRequest request, @NonNull HttpServletResponse response,
+                                    @NonNull FilterChain chain) throws ServletException, IOException {
+        String header = request.getHeader("Authorization");
+        if (header != null && header.startsWith("Bearer ")) {
+            SecurityContextHolder.clearContext();
+            AuthenticatedPrincipal principal = parsePrincipal(header.substring(7));
+            if (principal != null) {
+                identities.resolve(principal.userId(), principal.companyId(), principal.credentialVersion()).ifPresent(identity -> {
+                    var authorities = identity.roles().stream()
+                        .map(role -> new SimpleGrantedAuthority("ROLE_" + role)).toList();
+                    var authentication = new UsernamePasswordAuthenticationToken(identity.principal(), null, authorities);
+                    SecurityContextHolder.getContext().setAuthentication(authentication);
+                });
             }
         }
+        chain.doFilter(request, response);
+    }
 
-        filterChain.doFilter(request, response);
+    private AuthenticatedPrincipal parsePrincipal(String token) {
+        try {
+            Claims claims = jwt.parseAndValidate(token);
+            if (claims.getSubject() == null) {
+                return null;
+            }
+            String companyId = claims.get("companyId", String.class);
+            Integer credentialVersion = claims.get("credentialVersion", Integer.class);
+            return new AuthenticatedPrincipal(UUID.fromString(claims.getSubject()),
+                companyId == null ? null : UUID.fromString(companyId), credentialVersion == null ? 0 : credentialVersion);
+        } catch (JwtException | IllegalArgumentException exception) {
+            return null;
+        }
     }
 }

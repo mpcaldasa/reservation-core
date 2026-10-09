@@ -6,6 +6,9 @@ import com.slotix.reservationcore.availability.AvailabilityRuleRepository;
 import com.slotix.reservationcore.availability.ResourceBlockRepository;
 import com.slotix.reservationcore.booking.BookingRepository;
 import com.slotix.reservationcore.booking.BookingResourceRepository;
+import com.slotix.reservationcore.booking.Booking;
+import com.slotix.reservationcore.booking.BookingResource;
+import com.slotix.reservationcore.booking.BookingStatus;
 import com.slotix.reservationcore.booking.IdempotencyKeyRepository;
 import com.slotix.reservationcore.company.Company;
 import com.slotix.reservationcore.company.CompanyRepository;
@@ -31,12 +34,14 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
+import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -60,6 +65,8 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
 
     @BeforeEach
     void clean() {
+        jdbc.update("delete from identity_email_deliveries");
+        jdbc.update("delete from company_invitations");
         jdbc.update("delete from notification_deliveries");
         jdbc.update("delete from outbox_events");
         jdbc.update("delete from audit_logs");
@@ -83,7 +90,7 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
         BookingPolicy policy = policy(company, 30, 120, 15, 0, 30);
         String token = token(company, MembershipRole.COMPANY_ADMIN);
         String path = path(company, resource);
-        Instant from = Instant.now().plusSeconds(86_400);
+        Instant from = Instant.now().plusSeconds(86_400).truncatedTo(ChronoUnit.MICROS);
         Instant boundary = from.plusSeconds(86_400);
 
         mvc.perform(post(path).header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
@@ -94,10 +101,12 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
             .andExpect(status().isCreated());
         mvc.perform(post(path).header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
                 .content(body(policy, from.plusSeconds(60), boundary.plusSeconds(60))))
-            .andExpect(status().isConflict());
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("POLICY_ASSIGNMENT_OVERLAP"));
         mvc.perform(post(path).header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
                 .content(body(policy, boundary, from)))
-            .andExpect(status().isUnprocessableContent());
+            .andExpect(status().isUnprocessableContent())
+            .andExpect(jsonPath("$.code").value("INVALID_POLICY_ASSIGNMENT_INTERVAL"));
         mvc.perform(get(path).header("Authorization", bearer(token)))
             .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
     }
@@ -110,7 +119,7 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
         BookingPolicy ownPolicy = policy(own, 30, 120, 15, 0, 30);
         BookingPolicy otherPolicy = policy(other, 30, 120, 15, 0, 30);
         String path = path(own, resource);
-        Instant from = Instant.now().plusSeconds(86_400);
+        Instant from = Instant.now().plusSeconds(86_400).truncatedTo(ChronoUnit.MICROS);
 
         mvc.perform(post(path).header("Authorization", bearer(token(own, MembershipRole.CUSTOMER)))
                 .contentType(MediaType.APPLICATION_JSON).content(body(ownPolicy, from, null)))
@@ -140,6 +149,9 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
             .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(3));
         mvc.perform(get(endpoint).header("Authorization", bearer(token)).param("date", date.toString()).param("durationMinutes", "40"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        mvc.perform(get(endpoint).header("Authorization", bearer(token)).param("date", date.toString()).param("durationMinutes", "0"))
+            .andExpect(status().isBadRequest())
+            .andExpect(jsonPath("$.code").value("AVAILABILITY_DURATION_INVALID"));
         mvc.perform(get(endpoint).header("Authorization", bearer(token)).param("date", date.plusDays(7).toString()).param("durationMinutes", "30"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
     }
@@ -166,6 +178,57 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
             .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(3));
         mvc.perform(get(endpoint).header("Authorization", bearer(token)).param("date", beyondWindow.toString()).param("durationMinutes", "30"))
             .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void adminCanReplacePolicyWhenAssignmentHasNoActiveReservations() throws Exception {
+        Company company = company();
+        Resource resource = resource(company);
+        BookingPolicy original = policy(company, 30, 120, 15, 0, 30);
+        BookingPolicy replacement = policy(company, 15, 90, 15, 0, 30);
+        Instant from = Instant.now().plusSeconds(86_400);
+        Instant to = from.plusSeconds(86_400);
+        assignments.saveAndFlush(ResourcePolicy.create(resource.getId(), original.getId(), from, to));
+        String token = token(company, MembershipRole.COMPANY_ADMIN);
+        String endpoint = path(company, resource) + "/" + from + "/policy";
+
+        mvc.perform(put(endpoint).header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"policyId\":\"" + replacement.getId() + "\"}"))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.policyId").value(replacement.getId().toString()))
+            .andExpect(jsonPath("$.effectiveFrom").value(from.toString()))
+            .andExpect(jsonPath("$.effectiveTo").value(to.toString()));
+
+        mvc.perform(put(endpoint).header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"policyId\":\"" + replacement.getId() + "\"}"))
+            .andExpect(status().isOk());
+        org.junit.jupiter.api.Assertions.assertEquals(1L, jdbc.queryForObject(
+            "select count(*) from audit_logs where action = 'RESOURCE_POLICY_ASSIGNMENT_POLICY_REPLACED'", Long.class));
+    }
+
+    @Test
+    void activeReservationsPreventPolicyReplacementWithStableErrorCode() throws Exception {
+        Company company = company();
+        Resource resource = resource(company);
+        BookingPolicy original = policy(company, 30, 120, 15, 0, 30);
+        BookingPolicy replacement = policy(company, 15, 90, 15, 0, 30);
+        Instant from = Instant.now().plusSeconds(86_400);
+        Instant start = from.plusSeconds(3600);
+        Instant end = start.plusSeconds(1800);
+        assignments.saveAndFlush(ResourcePolicy.create(resource.getId(), original.getId(), from, null));
+        User customer = users.save(User.create(UUID.randomUUID() + "@example.test", "unused", "Test customer"));
+        Booking booking = bookings.saveAndFlush(Booking.create(company.getId(), customer.getId(), resource.getId(),
+            start, end, BookingStatus.CONFIRMED, company.getTimezone(), null));
+        bookingResources.saveAndFlush(BookingResource.create(booking, false));
+        String token = token(company, MembershipRole.COMPANY_ADMIN);
+        String endpoint = path(company, resource) + "/" + from + "/policy";
+
+        mvc.perform(put(endpoint).header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"policyId\":\"" + replacement.getId() + "\"}"))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("ACTIVE_RESERVATIONS_PREVENT_ASSIGNMENT_CHANGE"))
+            .andExpect(jsonPath("$.error").value(
+                "The policy cannot be replaced because active reservations use this assignment"));
     }
 
     private Company company() {

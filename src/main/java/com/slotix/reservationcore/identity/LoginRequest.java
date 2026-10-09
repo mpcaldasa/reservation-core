@@ -15,4 +15,8 @@ public record LoginRequest(
     @NotBlank(message = "password is required")
     String password
 ) {
+    @Override
+    public String toString() {
+        return "LoginRequest[companyId=" + companyId + ", email=" + email + ", password=[REDACTED]]";
+    }
 }

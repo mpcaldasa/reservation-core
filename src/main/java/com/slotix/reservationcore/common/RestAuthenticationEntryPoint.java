@@ -9,9 +9,6 @@ import org.springframework.security.web.AuthenticationEntryPoint;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
-import java.util.LinkedHashMap;
-import java.util.Map;
-
 @Component
 public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
 
@@ -24,13 +21,11 @@ public class RestAuthenticationEntryPoint implements AuthenticationEntryPoint {
         AuthenticationException authException
     ) throws IOException {
 
-        Map<String, Object> body = new LinkedHashMap<>();
-        body.put("status", HttpStatus.UNAUTHORIZED.value());
-        body.put("error", "Authentication is required or the token is invalid or expired");
-
         response.setStatus(HttpStatus.UNAUTHORIZED.value());
         response.setContentType("application/json;charset=UTF-8");
         response.setCharacterEncoding("UTF-8");
-        objectMapper.writeValue(response.getWriter(), body);
+        objectMapper.writeValue(response.getWriter(), ApiErrorResponse.of(HttpStatus.UNAUTHORIZED.value(),
+            ApiErrorCode.AUTHENTICATION_REQUIRED,
+            "Authentication is required or the token is invalid or expired"));
     }
 }

@@ -1,20 +1,20 @@
 package com.slotix.reservationcore.availability;
 
-import com.slotix.reservationcore.common.TenantAccessService;
 import com.slotix.reservationcore.booking.BookingResourceRepository;
 import com.slotix.reservationcore.booking.BookingResource;
+import com.slotix.reservationcore.common.ApiErrorCode;
+import com.slotix.reservationcore.common.ApiException;
 import com.slotix.reservationcore.company.Company;
 import com.slotix.reservationcore.company.CompanyRepository;
 import com.slotix.reservationcore.policy.BookingPolicy;
 import com.slotix.reservationcore.policy.BookingPolicyRepository;
 import com.slotix.reservationcore.policy.ResourcePolicy;
 import com.slotix.reservationcore.policy.ResourcePolicyRepository;
-import com.slotix.reservationcore.resource.ResourceRepository;
+import com.slotix.reservationcore.resource.ResourceAccessService;
 import com.slotix.reservationcore.resource.ResourceStatus;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -34,16 +34,15 @@ public class AvailabilityService {
     private final AvailabilityRuleRepository rules;
     private final ResourceBlockRepository blocks;
     private final CompanyRepository companies;
-    private final ResourceRepository resources;
+    private final ResourceAccessService resources;
     private final ResourcePolicyRepository assignments;
     private final BookingPolicyRepository policies;
     private final BookingResourceRepository reservations;
-    private final TenantAccessService access;
 
     public AvailabilityService(AvailabilityRuleRepository rules, ResourceBlockRepository blocks,
-                               CompanyRepository companies, ResourceRepository resources,
+                               CompanyRepository companies, ResourceAccessService resources,
                                ResourcePolicyRepository assignments, BookingPolicyRepository policies,
-                               BookingResourceRepository reservations, TenantAccessService access) {
+                               BookingResourceRepository reservations) {
         this.rules = rules;
         this.blocks = blocks;
         this.companies = companies;
@@ -51,20 +50,25 @@ public class AvailabilityService {
         this.assignments = assignments;
         this.policies = policies;
         this.reservations = reservations;
-        this.access = access;
     }
 
     @Transactional(readOnly = true)
     public List<AvailabilitySlot> slots(UUID companyId, UUID resourceId, LocalDate date, int durationMinutes) {
-        access.requireActiveMembership(companyId);
+        return slots(companyId, resourceId, date, durationMinutes, null);
+    }
+
+    @Transactional(readOnly = true)
+    public List<AvailabilitySlot> slots(UUID companyId, UUID resourceId, LocalDate date, int durationMinutes,
+                                        UUID excludedBookingId) {
+        var resource = resources.requireVisibleResource(companyId, resourceId);
         if (durationMinutes <= 0) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "durationMinutes must be greater than zero");
+            throw new ApiException(HttpStatus.BAD_REQUEST, ApiErrorCode.AVAILABILITY_DURATION_INVALID,
+                "durationMinutes must be greater than zero");
         }
-        var resource = resources.findByIdAndCompanyIdAndDeletedAtIsNull(resourceId, companyId)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Resource not found"));
         if (resource.getStatus() != ResourceStatus.ACTIVE) return List.of();
         Company company = companies.findById(companyId)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Company not found"));
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, ApiErrorCode.COMPANY_NOT_FOUND,
+                "Company not found"));
         ZoneId zone = ZoneId.of(company.getTimezone());
         Instant now = Instant.now();
         List<ResourcePolicy> assigned = assignments.findByIdResourceIdOrderByIdEffectiveFromAsc(resourceId);
@@ -75,7 +79,9 @@ public class AvailabilityService {
         List<ResourceBlock> blocked = blocks.findByCompanyIdAndResourceIdAndDeletedAtIsNullOrderByStartAtAsc(companyId, resourceId);
         Instant dayStart = date.atStartOfDay(zone).toInstant();
         Instant dayEnd = date.plusDays(1).atStartOfDay(zone).toInstant();
-        List<BookingResource> reserved = reservations.activeInRange(resourceId, dayStart, dayEnd);
+        List<BookingResource> reserved = excludedBookingId == null
+            ? reservations.activeInRange(resourceId, dayStart, dayEnd)
+            : reservations.activeInRangeExcludingBooking(resourceId, excludedBookingId, dayStart, dayEnd);
         short weekday = (short) (date.getDayOfWeek().getValue() % 7);
         List<AvailabilitySlot> result = new ArrayList<>();
 

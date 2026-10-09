@@ -8,6 +8,9 @@ import com.slotix.reservationcore.policy.BookingPolicyRepository;
 import com.slotix.reservationcore.policy.ResourcePolicyRepository;
 import com.slotix.reservationcore.booking.BookingRepository;
 import com.slotix.reservationcore.booking.BookingResourceRepository;
+import com.slotix.reservationcore.booking.Booking;
+import com.slotix.reservationcore.booking.BookingResource;
+import com.slotix.reservationcore.booking.BookingStatus;
 import com.slotix.reservationcore.booking.IdempotencyKeyRepository;
 import com.slotix.reservationcore.company.Company;
 import com.slotix.reservationcore.company.CompanyRepository;
@@ -25,10 +28,14 @@ import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertNotNull;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -55,6 +62,8 @@ class ResourceApiIntegrationTest extends PostgresIntegrationTestSupport {
 
     @BeforeEach
     void cleanDatabase() {
+        jdbc.update("delete from identity_email_deliveries");
+        jdbc.update("delete from company_invitations");
         jdbc.update("delete from notification_deliveries");
         jdbc.update("delete from outbox_events");
         jdbc.update("delete from audit_logs");
@@ -121,6 +130,49 @@ class ResourceApiIntegrationTest extends PostgresIntegrationTestSupport {
         mockMvc.perform(get("/api/v1/companies/{companyId}/resources", otherCompany.getId())
                 .header("Authorization", "Bearer " + token))
             .andExpect(status().isForbidden());
+    }
+
+    @Test
+    void resourceDeletionIsIdempotentAndHidesTheResource() throws Exception {
+        Company company = activeCompany("resource-deletion");
+        Resource resource = resourceRepository.save(Resource.create(company.getId(), "Studio", null,
+            ResourceType.SPACE, 1, ResourceVisibility.MEMBERS));
+        String token = companyAdminToken(company);
+
+        mockMvc.perform(delete("/api/v1/companies/{companyId}/resources/{resourceId}", company.getId(), resource.getId())
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isNoContent());
+        mockMvc.perform(delete("/api/v1/companies/{companyId}/resources/{resourceId}", company.getId(), resource.getId())
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isNoContent());
+        mockMvc.perform(get("/api/v1/companies/{companyId}/resources", company.getId())
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk())
+            .andExpect(jsonPath("$.length()").value(0));
+
+        Resource deleted = resourceRepository.findById(resource.getId()).orElseThrow();
+        assertNotNull(deleted.getDeletedAt());
+        assertEquals(1L, jdbc.queryForObject(
+            "select count(*) from audit_logs where action = 'RESOURCE_DELETED'", Long.class));
+    }
+
+    @Test
+    void activeReservationsPreventResourceDeletionWithStableErrorCode() throws Exception {
+        Company company = activeCompany("resource-deletion-conflict");
+        Resource resource = resourceRepository.save(Resource.create(company.getId(), "Studio", null,
+            ResourceType.SPACE, 1, ResourceVisibility.MEMBERS));
+        User customer = userRepository.save(User.create(UUID.randomUUID() + "@example.test", "unused", "Customer"));
+        Instant start = Instant.now().plusSeconds(3600);
+        Booking booking = bookingRepository.saveAndFlush(Booking.create(company.getId(), customer.getId(),
+            resource.getId(), start, start.plusSeconds(1800), BookingStatus.CONFIRMED, company.getTimezone(), null));
+        bookingResourceRepository.saveAndFlush(BookingResource.create(booking, false));
+        String token = companyAdminToken(company);
+
+        mockMvc.perform(delete("/api/v1/companies/{companyId}/resources/{resourceId}", company.getId(), resource.getId())
+                .header("Authorization", "Bearer " + token))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("ACTIVE_RESERVATIONS_PREVENT_RESOURCE_DELETION"))
+            .andExpect(jsonPath("$.error").value("The resource cannot be deleted while active reservations remain"));
     }
 
     private Company activeCompany(String slug) {

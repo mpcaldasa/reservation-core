@@ -5,11 +5,14 @@ import java.util.UUID;
 
 public record BookingResponse(UUID id, Long bookingNumber, UUID companyId, UUID resourceId, UUID customerUserId,
                               Instant startAt, Instant endAt, BookingStatus status, String timezone,
-                              String notes, Instant cancelledAt, String cancellationReason) {
+                              String notes, Instant cancelledAt, String cancellationReason,
+                              Instant checkedInAt, UUID checkedInBy, Instant completedAt, UUID completedBy,
+                              Instant noShowAt, UUID noShowBy) {
     public static BookingResponse from(Booking booking) {
         return new BookingResponse(booking.getId(), booking.getBookingNumber(), booking.getCompanyId(),
             booking.getResourceId(), booking.getCustomerUserId(), booking.getStartAt(), booking.getEndAt(),
             booking.getStatus(), booking.getTimezone(), booking.getNotes(), booking.getCancelledAt(),
-            booking.getCancellationReason());
+            booking.getCancellationReason(), booking.getCheckedInAt(), booking.getCheckedInBy(),
+            booking.getCompletedAt(), booking.getCompletedBy(), booking.getNoShowAt(), booking.getNoShowBy());
     }
 }

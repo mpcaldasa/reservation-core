@@ -35,6 +35,27 @@ public class ResourcePolicy {
     public UUID getPolicyId() { return policyId; }
     public Instant getEffectiveTo() { return effectiveTo; }
 
+    public void closeAt(Instant newEffectiveTo) {
+        if (!newEffectiveTo.isAfter(id.effectiveFrom())) {
+            throw new IllegalArgumentException("effectiveTo must be after effectiveFrom");
+        }
+        if (effectiveTo != null && newEffectiveTo.isAfter(effectiveTo)) {
+            throw new IllegalArgumentException("An assignment cannot be extended");
+        }
+        effectiveTo = newEffectiveTo;
+    }
+
+    public boolean replacePolicy(UUID newPolicyId) {
+        if (newPolicyId == null) {
+            throw new IllegalArgumentException("policyId is required");
+        }
+        if (policyId.equals(newPolicyId)) {
+            return false;
+        }
+        policyId = newPolicyId;
+        return true;
+    }
+
     public boolean covers(Instant start, Instant end) {
         return !start.isBefore(id.effectiveFrom()) && (effectiveTo == null || !end.isAfter(effectiveTo));
     }

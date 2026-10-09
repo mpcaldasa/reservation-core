@@ -7,6 +7,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.time.Duration;
 import java.util.UUID;
 
 @Entity
@@ -14,7 +15,7 @@ import java.util.UUID;
 public class IdempotencyKey {
     @Id @GeneratedValue private UUID id;
     @Column(name = "company_id", nullable = false) private UUID companyId;
-    @Column(name = "idempotency_key", nullable = false) private String key;
+    @Column(name = "idempotency_key", nullable = false) private String idempotencyKey;
     @Column(name = "request_hash", nullable = false) private String requestHash;
     @Column(name = "booking_id", nullable = false) private UUID bookingId;
     @Column(name = "created_at", nullable = false) private Instant createdAt;
@@ -22,14 +23,15 @@ public class IdempotencyKey {
 
     protected IdempotencyKey() {}
 
-    public static IdempotencyKey create(UUID companyId, String key, String requestHash, UUID bookingId) {
+    public static IdempotencyKey create(UUID companyId, String key, String requestHash, UUID bookingId,
+                                        Instant createdAt, Duration timeToLive) {
         IdempotencyKey record = new IdempotencyKey();
         record.companyId = companyId;
-        record.key = key;
+        record.idempotencyKey = key;
         record.requestHash = requestHash;
         record.bookingId = bookingId;
-        record.createdAt = Instant.now();
-        record.expiresAt = record.createdAt.plusSeconds(86_400);
+        record.createdAt = createdAt;
+        record.expiresAt = createdAt.plus(timeToLive);
         return record;
     }
 

@@ -4,9 +4,11 @@ import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
@@ -44,5 +46,25 @@ public class ResourceController {
     @PreAuthorize("hasRole('COMPANY_ADMIN')")
     public ResourceResponse activate(@PathVariable UUID companyId, @PathVariable UUID resourceId) {
         return resourceService.activate(companyId, resourceId);
+    }
+
+    @PutMapping("/{resourceId}")
+    @PreAuthorize("hasRole('COMPANY_ADMIN')")
+    public ResourceResponse update(@PathVariable UUID companyId, @PathVariable UUID resourceId,
+                                   @Valid @RequestBody UpdateResourceRequest request) {
+        return resourceService.update(companyId, resourceId, request);
+    }
+
+    @PostMapping("/{resourceId}/deactivate")
+    @PreAuthorize("hasRole('COMPANY_ADMIN')")
+    public ResourceResponse deactivate(@PathVariable UUID companyId, @PathVariable UUID resourceId) {
+        return resourceService.deactivate(companyId, resourceId);
+    }
+
+    @DeleteMapping("/{resourceId}")
+    @PreAuthorize("hasRole('COMPANY_ADMIN')")
+    public ResponseEntity<Void> delete(@PathVariable UUID companyId, @PathVariable UUID resourceId) {
+        resourceService.delete(companyId, resourceId);
+        return ResponseEntity.noContent().build();
     }
 }

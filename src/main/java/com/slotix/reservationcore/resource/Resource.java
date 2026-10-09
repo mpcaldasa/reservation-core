@@ -9,6 +9,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
 import java.time.Instant;
+import java.util.Objects;
 import java.util.UUID;
 
 @Entity
@@ -103,14 +104,55 @@ public class Resource {
         return status;
     }
 
-    public void activate() {
-        if (deletedAt != null) throw new IllegalStateException("A deleted resource cannot be activated");
+    public boolean activate(Instant updatedAt) {
+        requireNotDeleted();
+        if (status == ResourceStatus.ACTIVE) return false;
         status = ResourceStatus.ACTIVE;
-        updatedAt = Instant.now();
+        this.updatedAt = updatedAt;
+        return true;
+    }
+
+    public boolean deactivate(Instant occurredAt) {
+        requireNotDeleted();
+        if (status == ResourceStatus.INACTIVE) return false;
+        status = ResourceStatus.INACTIVE;
+        updatedAt = occurredAt;
+        return true;
+    }
+
+    public boolean softDelete(Instant occurredAt) {
+        if (deletedAt != null) return false;
+        deletedAt = occurredAt;
+        status = ResourceStatus.INACTIVE;
+        updatedAt = occurredAt;
+        return true;
+    }
+
+    public boolean updateDetails(String name, String description, ResourceType resourceType, int capacity,
+                                 ResourceVisibility visibility, Instant occurredAt) {
+        requireNotDeleted();
+        boolean changed = !Objects.equals(this.name, name) || !Objects.equals(this.description, description)
+            || this.resourceType != resourceType || this.capacity != capacity || this.visibility != visibility;
+        if (!changed) return false;
+        this.name = name;
+        this.description = description;
+        this.resourceType = resourceType;
+        this.capacity = capacity;
+        this.visibility = visibility;
+        updatedAt = occurredAt;
+        return true;
+    }
+
+    private void requireNotDeleted() {
+        if (deletedAt != null) throw new IllegalStateException("A deleted resource cannot be changed");
     }
 
     public ResourceVisibility getVisibility() {
         return visibility;
+    }
+
+    public boolean activate() {
+        return activate(Instant.now());
     }
 
     public Instant getCreatedAt() {
@@ -119,5 +161,9 @@ public class Resource {
 
     public Instant getUpdatedAt() {
         return updatedAt;
+    }
+
+    public Instant getDeletedAt() {
+        return deletedAt;
     }
 }

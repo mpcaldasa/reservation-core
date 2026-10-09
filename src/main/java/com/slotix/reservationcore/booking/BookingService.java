@@ -3,16 +3,19 @@ package com.slotix.reservationcore.booking;
 import com.slotix.reservationcore.availability.AvailabilityService;
 import com.slotix.reservationcore.audit.AuditService;
 import com.slotix.reservationcore.common.AuthenticatedPrincipal;
+import com.slotix.reservationcore.common.ApiErrorCode;
+import com.slotix.reservationcore.common.ApiException;
 import com.slotix.reservationcore.common.TenantAccessService;
 import com.slotix.reservationcore.company.Company;
 import com.slotix.reservationcore.company.CompanyRepository;
 import com.slotix.reservationcore.identity.CompanyMembershipRepository;
 import com.slotix.reservationcore.policy.BookingPolicy;
 import com.slotix.reservationcore.notification.NotificationOutboxService;
+import com.slotix.reservationcore.observability.SlotixMetrics;
 import com.slotix.reservationcore.policy.BookingPolicyRepository;
 import com.slotix.reservationcore.policy.ResourcePolicyRepository;
 import com.slotix.reservationcore.resource.Resource;
-import com.slotix.reservationcore.resource.ResourceRepository;
+import com.slotix.reservationcore.resource.ResourceAccessService;
 import com.slotix.reservationcore.resource.ResourceStatus;
 import jakarta.persistence.EntityManager;
 import org.springframework.http.HttpStatus;
@@ -21,7 +24,6 @@ import org.springframework.security.core.Authentication;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.web.server.ResponseStatusException;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -37,10 +39,10 @@ import java.util.UUID;
 public class BookingService {
     private final BookingRepository bookings;
     private final BookingResourceRepository occupied;
-    private final IdempotencyKeyRepository keys;
+    private final IdempotencyKeyService idempotencyKeys;
     private final CompanyRepository companies;
     private final CompanyMembershipRepository memberships;
-    private final ResourceRepository resources;
+    private final ResourceAccessService resources;
     private final ResourcePolicyRepository assignments;
     private final BookingPolicyRepository policies;
     private final AvailabilityService availability;
@@ -48,15 +50,17 @@ public class BookingService {
     private final EntityManager entityManager;
     private final AuditService audit;
     private final NotificationOutboxService notifications;
+    private final SlotixMetrics metrics;
 
-    public BookingService(BookingRepository bookings, BookingResourceRepository occupied, IdempotencyKeyRepository keys,
-                          CompanyRepository companies, CompanyMembershipRepository memberships, ResourceRepository resources,
+    public BookingService(BookingRepository bookings, BookingResourceRepository occupied, IdempotencyKeyService idempotencyKeys,
+                          CompanyRepository companies, CompanyMembershipRepository memberships, ResourceAccessService resources,
                           ResourcePolicyRepository assignments,
                           BookingPolicyRepository policies, AvailabilityService availability, TenantAccessService access,
-                          EntityManager entityManager, AuditService audit, NotificationOutboxService notifications) {
+                          EntityManager entityManager, AuditService audit, NotificationOutboxService notifications,
+                          SlotixMetrics metrics) {
         this.bookings = bookings;
         this.occupied = occupied;
-        this.keys = keys;
+        this.idempotencyKeys = idempotencyKeys;
         this.companies = companies;
         this.memberships = memberships;
         this.resources = resources;
@@ -67,17 +71,20 @@ public class BookingService {
         this.entityManager = entityManager;
         this.audit = audit;
         this.notifications = notifications;
+        this.metrics = metrics;
     }
 
     @Transactional
     public BookingResponse create(UUID companyId, String key, CreateBookingRequest request) {
         access.requireActiveMembership(companyId);
         if (key == null || key.isBlank() || key.length() > 200) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Idempotency-Key must contain 1 to 200 characters");
+            throw new ApiException(HttpStatus.BAD_REQUEST, ApiErrorCode.IDEMPOTENCY_KEY_INVALID,
+                "Idempotency-Key must contain between 1 and 200 characters");
         }
         if (!request.endAt().isAfter(request.startAt()) || Duration.between(request.startAt(), request.endAt()).toSeconds() % 60 != 0
             || Duration.between(request.startAt(), request.endAt()).toMinutes() > 1440) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "Booking interval must have a positive whole-minute duration");
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.BOOKING_INTERVAL_INVALID,
+                "The booking interval must have a positive whole-minute duration no longer than 24 hours");
         }
         AuthenticatedPrincipal principal = principal();
         Authentication authentication = SecurityContextHolder.getContext().getAuthentication();
@@ -87,47 +94,54 @@ public class BookingService {
             throw new AccessDeniedException("Customers can only create their own bookings");
         }
         if (!memberships.existsByCompanyIdAndUserIdAndStatusAndDeletedAtIsNull(companyId, customerId, "ACTIVE")) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "Customer must be an active company member");
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.CUSTOMER_MEMBERSHIP_REQUIRED,
+                "The customer must have an active membership in this company");
         }
         String hash = hash(request, customerId);
 
         Company company = companies.lockById(companyId).filter(Company::isActive)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "Company is not active"));
-        var existing = keys.findByCompanyIdAndKey(companyId, key);
+            .orElseThrow(() -> new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.COMPANY_INACTIVE,
+                "The company must be active to accept bookings"));
+        var existing = idempotencyKeys.findCurrent(companyId, key);
         if (existing.isPresent()) {
             if (!existing.get().getRequestHash().equals(hash)) {
-                throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "IDEMPOTENCY_KEY_REUSED");
+                throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.IDEMPOTENCY_KEY_REUSED,
+                    "This idempotency key was already used with a different booking request");
             }
             return BookingResponse.from(bookings.findByIdAndCompanyId(existing.get().getBookingId(), companyId)
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Idempotent booking not found")));
+                .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, ApiErrorCode.IDEMPOTENT_BOOKING_NOT_FOUND,
+                    "The booking associated with this idempotency key no longer exists")));
         }
-        Resource resource = resources.findByIdAndCompanyIdAndDeletedAtIsNull(request.resourceId(), companyId)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Resource not found"));
+        Resource resource = resources.requireVisibleResource(companyId, request.resourceId());
         if (resource.getStatus() != ResourceStatus.ACTIVE) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "Resource is not active");
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.RESOURCE_INACTIVE,
+                "The selected resource is not active");
         }
         BookingPolicy policy = assignments.findByIdResourceIdOrderByIdEffectiveFromAsc(resource.getId()).stream()
             .filter(assignment -> assignment.covers(request.startAt(), request.endAt()))
             .findFirst()
             .flatMap(assignment -> policies.findByIdAndCompanyIdAndStatusAndDeletedAtIsNull(
                 assignment.getPolicyId(), companyId, "ACTIVE"))
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "No active policy covers the booking"));
+            .orElseThrow(() -> new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
+                ApiErrorCode.BOOKING_POLICY_UNAVAILABLE, "No active booking policy covers the requested interval"));
         int duration = (int) Duration.between(request.startAt(), request.endAt()).toMinutes();
         ZoneId zone = ZoneId.of(company.getTimezone());
         boolean validSlot = availability.slots(companyId, resource.getId(),
                 request.startAt().atZone(zone).toLocalDate(), duration).stream()
             .anyMatch(slot -> slot.startAt().equals(request.startAt()) && slot.endAt().equals(request.endAt()));
         if (!validSlot || occupied.occupied(resource.getId(), request.startAt(), request.endAt()) >= resource.getCapacity()) {
-            throw new ResponseStatusException(HttpStatus.CONFLICT, "BOOKING_CONFLICT");
+            throw new ApiException(HttpStatus.CONFLICT, ApiErrorCode.BOOKING_SLOT_UNAVAILABLE,
+                "The selected time slot is no longer available");
         }
         Booking booking = bookings.saveAndFlush(Booking.create(companyId, customerId, resource.getId(), request.startAt(),
             request.endAt(), policy.isApprovalRequired() ? BookingStatus.PENDING : BookingStatus.CONFIRMED,
             company.getTimezone(), request.notes()));
         occupied.saveAndFlush(BookingResource.create(booking, resource.getCapacity() == 1));
-        keys.save(IdempotencyKey.create(companyId, key, hash, booking.getId()));
+        idempotencyKeys.create(companyId, key, hash, booking.getId());
         audit.record(companyId, principal.userId(), "BOOKING_CREATED", "BOOKING", booking.getId(), null,
             "{\"status\":\"" + booking.getStatus() + "\"}");
         notifications.enqueueBookingEvent(companyId, booking.getId(), "BOOKING_CREATED");
+        metrics.bookingCreated(booking.getStatus());
         entityManager.refresh(booking);
         return BookingResponse.from(booking);
     }
@@ -136,7 +150,8 @@ public class BookingService {
     public BookingResponse get(UUID companyId, UUID bookingId) {
         access.requireActiveMembership(companyId);
         Booking booking = bookings.findByIdAndCompanyId(bookingId, companyId)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, ApiErrorCode.BOOKING_NOT_FOUND,
+                "The booking does not exist in this company"));
         requireViewPermission(booking);
         return BookingResponse.from(booking);
     }
@@ -145,7 +160,8 @@ public class BookingService {
     public List<BookingResponse> calendar(UUID companyId, Instant from, Instant to) {
         access.requireActiveMembership(companyId);
         if (!to.isAfter(from) || Duration.between(from, to).toDays() > 31) {
-            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Calendar range must be positive and no longer than 31 days");
+            throw new ApiException(HttpStatus.BAD_REQUEST, ApiErrorCode.CALENDAR_RANGE_INVALID,
+                "The calendar range must be positive and no longer than 31 days");
         }
         AuthenticatedPrincipal actor = principal();
         boolean staff = isStaff();
@@ -157,31 +173,38 @@ public class BookingService {
     @Transactional
     public BookingResponse cancel(UUID companyId, UUID bookingId, String reason) {
         access.requireActiveMembership(companyId);
-        Booking booking = bookings.findByIdAndCompanyId(bookingId, companyId)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
+        Booking booking = bookings.lockByIdAndCompanyId(bookingId, companyId)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, ApiErrorCode.BOOKING_NOT_FOUND,
+                "The booking does not exist in this company"));
         requireViewPermission(booking);
         if (booking.getStatus() == BookingStatus.CANCELLED) return BookingResponse.from(booking);
         if (booking.getStatus() != BookingStatus.CONFIRMED && booking.getStatus() != BookingStatus.PENDING) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "Booking cannot be cancelled from its current status");
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.BOOKING_STATE_INVALID,
+                "The booking cannot be cancelled from its current status");
         }
         boolean staff = isStaff();
         if (staff && (reason == null || reason.isBlank())) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "Staff cancellation requires a reason");
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.CANCELLATION_REASON_REQUIRED,
+                "Staff cancellations must include a reason");
         }
         if (!staff) {
             BookingPolicy policy = assignments.findByIdResourceIdOrderByIdEffectiveFromAsc(booking.getResourceId()).stream()
                 .filter(item -> item.covers(booking.getStartAt(), booking.getEndAt())).findFirst()
-                .flatMap(item -> policies.findByIdAndCompanyIdAndStatusAndDeletedAtIsNull(item.getPolicyId(), companyId, "ACTIVE"))
-                .orElseThrow(() -> new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "Booking policy is unavailable"));
+                .flatMap(item -> policies.findByIdAndCompanyIdAndDeletedAtIsNull(item.getPolicyId(), companyId))
+                .orElseThrow(() -> new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
+                    ApiErrorCode.BOOKING_POLICY_UNAVAILABLE, "The booking policy for this reservation is unavailable"));
             if (!policy.isAllowCustomerCancel() || booking.getStartAt().isBefore(Instant.now().plusSeconds(policy.getCancellationNoticeMinutes() * 60L))) {
-                throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, "Customer cancellation is outside the policy limit");
+                throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
+                    ApiErrorCode.CUSTOMER_CANCELLATION_NOT_ALLOWED,
+                    "Customer cancellation is not allowed by the booking policy at this time");
             }
         }
         BookingStatus previousStatus = booking.getStatus();
         booking.cancel(principal().userId(), reason);
         bookings.flush();
         BookingResource row = occupied.findByIdBookingIdAndIdResourceId(bookingId, booking.getResourceId())
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Booking allocation not found"));
+            .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, ApiErrorCode.BOOKING_ALLOCATION_NOT_FOUND,
+                "The booking allocation record is missing"));
         row.cancel();
         occupied.flush();
         audit.record(companyId, principal().userId(), "BOOKING_CANCELLED", "BOOKING", bookingId,
@@ -194,17 +217,20 @@ public class BookingService {
     public BookingResponse decide(UUID companyId, UUID bookingId, BookingStatus decision) {
         access.requireActiveMembership(companyId);
         if (!isStaff()) throw new AccessDeniedException("Only company staff can decide pending bookings");
-        Booking booking = bookings.findByIdAndCompanyId(bookingId, companyId)
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Booking not found"));
+        Booking booking = bookings.lockByIdAndCompanyId(bookingId, companyId)
+            .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, ApiErrorCode.BOOKING_NOT_FOUND,
+                "The booking does not exist in this company"));
         BookingStatus previous = booking.getStatus();
         try {
             booking.decide(decision);
         } catch (IllegalStateException ex) {
-            throw new ResponseStatusException(HttpStatus.UNPROCESSABLE_CONTENT, ex.getMessage());
+            throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.BOOKING_STATE_INVALID,
+                ex.getMessage());
         }
         bookings.flush();
         BookingResource allocation = occupied.findByIdBookingIdAndIdResourceId(bookingId, booking.getResourceId())
-            .orElseThrow(() -> new ResponseStatusException(HttpStatus.CONFLICT, "Booking allocation not found"));
+            .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, ApiErrorCode.BOOKING_ALLOCATION_NOT_FOUND,
+                "The booking allocation record is missing"));
         allocation.setStatus(decision);
         occupied.flush();
         String before = "{\"status\":\"" + previous + "\"}";

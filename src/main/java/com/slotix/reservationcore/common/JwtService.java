@@ -28,12 +28,17 @@ public class JwtService {
     }
 
     public String generateToken(UUID userId, UUID companyId, List<String> roles) {
+        return generateToken(userId, companyId, roles, 0);
+    }
+
+    public String generateToken(UUID userId, UUID companyId, List<String> roles, int credentialVersion) {
         Instant now = Instant.now();
 
         return Jwts.builder()
             .subject(userId.toString())
-            .claim("companyId", companyId.toString())
+            .claim("companyId", companyId == null ? null : companyId.toString())
             .claim("roles", roles)
+            .claim("credentialVersion", credentialVersion)
             .issuedAt(java.util.Date.from(now))
             .expiration(java.util.Date.from(now.plus(expirationMinutes, ChronoUnit.MINUTES)))
             .signWith(key)

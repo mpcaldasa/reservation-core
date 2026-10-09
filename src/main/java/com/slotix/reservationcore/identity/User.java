@@ -33,6 +33,9 @@ public class User {
     @Column(name = "deleted_at")
     private Instant deletedAt;
 
+    @Column(name = "credential_version", nullable = false)
+    private int credentialVersion;
+
     protected User() {
         // Required by JPA/Hibernate.
     }
@@ -78,5 +81,36 @@ public class User {
 
     public Instant getDeletedAt() {
         return deletedAt;
+    }
+
+    public int getCredentialVersion() { return credentialVersion; }
+
+    public boolean isActive() {
+        return "ACTIVE".equals(status) && deletedAt == null;
+    }
+
+    public void changePasswordHash(String passwordHash, Instant occurredAt) {
+        if (passwordHash == null || passwordHash.isBlank()) {
+            throw new IllegalArgumentException("Password hash must not be blank");
+        }
+        this.passwordHash = passwordHash;
+        this.updatedAt = occurredAt;
+        this.credentialVersion++;
+    }
+
+    public boolean deactivate(Instant occurredAt) {
+        if (!isActive()) return false;
+        status = "INACTIVE";
+        updatedAt = occurredAt;
+        credentialVersion++;
+        return true;
+    }
+
+    public boolean reactivate(Instant occurredAt) {
+        if (deletedAt != null || isActive()) return false;
+        status = "ACTIVE";
+        updatedAt = occurredAt;
+        credentialVersion++;
+        return true;
     }
 }

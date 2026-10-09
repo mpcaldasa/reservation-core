@@ -37,6 +37,14 @@ public class PlatformUserRole {
         return userId;
     }
 
+    public static PlatformUserRole create(UUID userId, PlatformRole role) {
+        PlatformUserRole assignment = new PlatformUserRole();
+        assignment.userId = userId;
+        assignment.role = role;
+        assignment.createdAt = Instant.now();
+        return assignment;
+    }
+
     public PlatformRole getRole() {
         return role;
     }
