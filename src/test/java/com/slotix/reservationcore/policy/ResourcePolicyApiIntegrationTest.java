@@ -38,7 +38,13 @@ import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -229,6 +235,112 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
             .andExpect(jsonPath("$.code").value("ACTIVE_RESERVATIONS_PREVENT_ASSIGNMENT_CHANGE"))
             .andExpect(jsonPath("$.error").value(
                 "The policy cannot be replaced because active reservations use this assignment"));
+    }
+
+    @Test
+    void assignmentCanOnlyBeShortenedAndRepeatingTheSameClosureHasNoExtraAudit() throws Exception {
+        Company company = company();
+        Resource resource = resource(company);
+        BookingPolicy policy = policy(company, 30, 120, 15, 0, 30);
+        Instant from = Instant.now().plusSeconds(86_400).truncatedTo(ChronoUnit.MICROS);
+        Instant originalTo = from.plusSeconds(86_400);
+        Instant shortenedTo = from.plusSeconds(43_200);
+        assignments.saveAndFlush(ResourcePolicy.create(resource.getId(), policy.getId(), from, null));
+        String token = token(company, MembershipRole.COMPANY_ADMIN);
+        String endpoint = path(company, resource) + "/" + from;
+        String closeBody = "{\"effectiveTo\":\"" + shortenedTo + "\"}";
+
+        mvc.perform(put(endpoint).header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
+                .content(closeBody))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.effectiveTo").value(shortenedTo.toString()));
+        mvc.perform(put(endpoint).header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
+                .content(closeBody))
+            .andExpect(status().isOk());
+        mvc.perform(put(endpoint).header("Authorization", bearer(token)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"effectiveTo\":\"" + originalTo + "\"}"))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("POLICY_ASSIGNMENT_CANNOT_BE_EXTENDED"));
+
+        assertEquals(1L, jdbc.queryForObject(
+            "select count(*) from audit_logs where action = 'RESOURCE_POLICY_ASSIGNMENT_CLOSED'", Long.class));
+    }
+
+    @Test
+    void activeReservationPreventsClosingAssignmentBeforeItsEnd() throws Exception {
+        Company company = company();
+        Resource resource = resource(company);
+        BookingPolicy policy = policy(company, 30, 120, 15, 0, 30);
+        Instant from = Instant.now().plusSeconds(86_400).truncatedTo(ChronoUnit.MICROS);
+        Instant bookingStart = from.plusSeconds(7200);
+        assignments.saveAndFlush(ResourcePolicy.create(resource.getId(), policy.getId(), from, null));
+        User customer = users.save(User.create(UUID.randomUUID() + "@example.test", "unused", "Test customer"));
+        Booking booking = bookings.saveAndFlush(Booking.create(company.getId(), customer.getId(), resource.getId(),
+            bookingStart, bookingStart.plusSeconds(1800), BookingStatus.CONFIRMED, company.getTimezone(), null));
+        bookingResources.saveAndFlush(BookingResource.create(booking, false));
+        String token = token(company, MembershipRole.COMPANY_ADMIN);
+
+        mvc.perform(put(path(company, resource) + "/" + from).header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"effectiveTo\":\"" + from.plusSeconds(3600) + "\"}"))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("ACTIVE_RESERVATIONS_PREVENT_ASSIGNMENT_CHANGE"));
+    }
+
+    @Test
+    void onlyFutureAssignmentsWithoutReservationsCanBeRemoved() throws Exception {
+        Company company = company();
+        Resource resource = resource(company);
+        BookingPolicy policy = policy(company, 30, 120, 15, 0, 30);
+        Instant futureFrom = Instant.now().plusSeconds(86_400).truncatedTo(ChronoUnit.MICROS);
+        Instant currentFrom = Instant.now().minusSeconds(60).truncatedTo(ChronoUnit.MICROS);
+        assignments.saveAndFlush(ResourcePolicy.create(resource.getId(), policy.getId(), futureFrom, null));
+        assignments.saveAndFlush(ResourcePolicy.create(resource.getId(), policy.getId(), currentFrom, futureFrom));
+        String token = token(company, MembershipRole.COMPANY_ADMIN);
+        String base = path(company, resource) + "/";
+
+        mvc.perform(delete(base + futureFrom).header("Authorization", bearer(token)))
+            .andExpect(status().isNoContent());
+        mvc.perform(delete(base + currentFrom).header("Authorization", bearer(token)))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("POLICY_ASSIGNMENT_NOT_FUTURE"));
+
+        assertEquals(1L, jdbc.queryForObject("select count(*) from resource_policies where resource_id = ?",
+            Long.class, resource.getId()));
+        assertEquals(1L, jdbc.queryForObject(
+            "select count(*) from audit_logs where action = 'RESOURCE_POLICY_ASSIGNMENT_REMOVED'", Long.class));
+    }
+
+    @Test
+    void concurrentOverlappingAssignmentsSerializeOnCompanyLock() throws Exception {
+        Company company = company();
+        Resource resource = resource(company);
+        BookingPolicy firstPolicy = policy(company, 30, 120, 15, 0, 30);
+        BookingPolicy secondPolicy = policy(company, 30, 120, 15, 0, 30);
+        String token = token(company, MembershipRole.COMPANY_ADMIN);
+        String endpoint = path(company, resource);
+        Instant from = Instant.now().plusSeconds(86_400).truncatedTo(ChronoUnit.MICROS);
+        String firstBody = body(firstPolicy, from, null);
+        String secondBody = body(secondPolicy, from, null);
+        CountDownLatch ready = new CountDownLatch(2);
+        CountDownLatch start = new CountDownLatch(1);
+
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> assignAfterStart(endpoint, token, firstBody, ready, start));
+            var second = executor.submit(() -> assignAfterStart(endpoint, token, secondBody, ready, start));
+            assertTrue(ready.await(10, TimeUnit.SECONDS));
+            start.countDown();
+            assertEquals(Set.of(201, 409), Set.of(first.get(10, TimeUnit.SECONDS), second.get(10, TimeUnit.SECONDS)));
+        }
+        assertEquals(1, assignments.findByIdResourceIdOrderByIdEffectiveFromAsc(resource.getId()).size());
+    }
+
+    private int assignAfterStart(String endpoint, String token, String request, CountDownLatch ready,
+                                 CountDownLatch start) throws Exception {
+        ready.countDown();
+        assertTrue(start.await(10, TimeUnit.SECONDS));
+        return mvc.perform(post(endpoint).header("Authorization", bearer(token))
+                .contentType(MediaType.APPLICATION_JSON).content(request))
+            .andReturn().getResponse().getStatus();
     }
 
     private Company company() {
