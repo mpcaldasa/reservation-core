@@ -1,6 +1,8 @@
 # Slotix reservation core
 
-Slotix is a modular Spring Boot monolith for multi-company booking of rooms, courts, equipment, vehicles, people, and services. It uses Java 25, PostgreSQL, Flyway, Spring Security with JWT, and Testcontainers.
+Slotix is a multi-tenant booking platform for organizations that need to manage reservations for rooms, courts, equipment, vehicles, people, and services. This repository contains the Spring Boot API; the Angular web application lives in the sibling `../slotix-web` repository.
+
+The backend is a modular Spring Boot 4.1.1 application built with Java 25. It uses PostgreSQL 16, Flyway-managed schema migrations, Spring Security with JWT authentication, and Testcontainers for PostgreSQL integration tests. The Angular frontend uses Angular 22 and proxies `/api` requests to the local backend during development.
 
 Engineering conventions and implemented behavior are documented in [specs](specs/README.md).
 
@@ -8,9 +10,101 @@ Application observability uses structured JSON logs, Micrometer metrics, OpenTel
 
 ## Local development
 
-1. Start PostgreSQL with `docker compose up -d postgres`.
-2. Start the API with `./mvnw spring-boot:run`.
-3. Run the integration suite with `./mvnw verify`. Tests start their own PostgreSQL container and do not use the development database.
+### Project map
+
+- `src/main/java`: API and domain modules, including identity, companies, resources, availability, policies, bookings, audit, and notifications.
+- `src/main/resources/db/migration`: versioned Flyway database migrations. The application validates the schema at startup; do not edit an already applied migration.
+- `src/test/java`: unit and API integration tests. Integration tests start an isolated PostgreSQL container through Testcontainers.
+- `specs/`: behavior, architecture, quality, and operational specifications.
+- `infra/aws/`: Terraform configuration for the AWS deployment.
+- `../slotix-web/`: sibling Angular frontend. See its [README](../slotix-web/README.md) for frontend-specific architecture and workflows.
+
+### Prerequisites
+
+Install Java 25, Docker with Docker Compose, Node.js `^22.22.3`, `^24.15.0`, or `>=26.0.0`, and npm 11. The backend Maven wrapper downloads the pinned Maven version on first use. The local workflow uses ports 5432 (PostgreSQL), 8080 (API), and 4200 (Angular); make sure they are available.
+
+### Run the frontend and backend together
+
+From this repository, start the local PostgreSQL database:
+
+```sh
+docker compose up -d postgres
+```
+
+Start the backend in one terminal:
+
+```sh
+./mvnw spring-boot:run
+```
+
+The API listens on `http://localhost:8080`. The default local database is `slotix` on `localhost:5432`, with the development credentials configured in `src/main/resources/application.properties`. Flyway applies pending migrations at startup.
+
+In another terminal, install and start the frontend:
+
+```sh
+cd ../slotix-web
+npm ci
+npm start
+```
+
+Open `http://localhost:4200`. The Angular development server proxies `/api` to `http://localhost:8080`, so the browser uses the local API without extra CORS setup. Check API readiness at `http://localhost:8080/actuator/health/readiness`; explore the API at `http://localhost:8080/swagger-ui.html`.
+
+For an empty local database, create the first platform administrator by setting the bootstrap variables before starting the backend. Use a local-only password and disable the bootstrap flag after initialization:
+
+```sh
+export APP_BOOTSTRAP_PLATFORM_ADMIN_ENABLED=true
+export APP_BOOTSTRAP_PLATFORM_ADMIN_EMAIL='admin@example.test'
+export APP_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD='replace-with-a-local-password'
+export APP_BOOTSTRAP_PLATFORM_ADMIN_FULL_NAME='Local Platform Admin'
+./mvnw spring-boot:run
+```
+
+Then sign in at `http://localhost:4200/platform/login` and use the platform UI to onboard a company and its first administrator. Company users sign in with their company identifier. Bootstrap creates an administrator only if none exists; it does not reset existing credentials. For the API flow and all variable names, see [First platform administrator and company onboarding](#first-platform-administrator-and-company-onboarding). Do not use the example credentials outside a disposable local environment.
+
+Stop the application processes with `Ctrl+C`. Stop PostgreSQL with `docker compose stop postgres`; `docker compose down` also removes the container but preserves its named database volume.
+
+## Tests and developer checks
+
+With PostgreSQL, the backend, and Angular running as described above, run the local full-stack smoke tests with:
+
+```sh
+python3 -B scripts/local_stack_smoke.py
+```
+
+These checks verify backend readiness and OpenAPI, that Angular serves its app shell, and that the Angular `/api` proxy forwards to the backend. The proxy check sends deliberately invalid credentials and expects an authentication rejection; it does not require or modify a user account. Override the defaults with `SLOTIX_API_URL` and `SLOTIX_FRONTEND_URL` when the services use different local addresses.
+
+Run backend unit tests with:
+
+```sh
+./mvnw test
+```
+
+Run the complete backend verification, including PostgreSQL integration tests (Docker required), with:
+
+```sh
+./mvnw verify
+```
+
+Run the backend quality profile and its CI quality gate with:
+
+```sh
+./mvnw -Pquality clean verify
+python3 -B scripts/ci/quality_gate.py
+```
+
+For the Angular application, run commands from `../slotix-web` after `npm ci`:
+
+```sh
+npm test                 # unit tests
+npm run test:coverage    # unit tests with coverage
+npm run e2e              # Playwright end-to-end tests (mocked API)
+npm run typecheck
+npm run lint
+npm run build
+npm run verify           # typecheck, lint, formatting, coverage, build, and E2E
+```
+
+Install the Playwright browser once with `npx playwright install chromium` if it is not already available. `npm run e2e:real` exercises a dedicated test company against a real backend; follow the frontend README and never point it at production data. The frontend README also documents contract checks, dependency audits, configuration, and the test-account setup.
 
 The local `application.properties` contains development credentials. Supply `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, and `APP_JWT_SECRET` in deployed environments.
 
