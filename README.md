@@ -14,6 +14,16 @@ Application observability uses structured JSON logs, Micrometer metrics, OpenTel
 
 The local `application.properties` contains development credentials. Supply `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, and `APP_JWT_SECRET` in deployed environments.
 
+### Quality assessment
+
+Run `./mvnw -Pquality clean verify` to execute all tests and package verification with JaCoCo coverage, SpotBugs plus Find Security Bugs, PMD maintainability analysis, and CPD duplication detection. Docker is required for PostgreSQL integration tests. Tool versions are pinned in the Maven profile.
+
+Coverage is available at `target/site/jacoco/index.html`; static reports are `target/spotbugsXml.xml`, `target/pmd.xml`, and `target/cpd.xml`, with PMD and CPD HTML in `target/site/`. After Maven verification, run `python3 -B scripts/ci/quality_gate.py` to apply the same quality gate used by CI: at least 90% line coverage and 60% branch coverage, a nonempty test run with no failed or skipped tests, no high-priority SpotBugs findings, and complete analyzer reports without processing errors. Medium/low SpotBugs findings, PMD warnings, and duplication remain visible for review. Maven verification must also pass; the report gate does not replace it.
+
+CI publishes a GitHub Actions summary and uploads reports as `backend-quality-reports`, including test diagnostics when a run fails, for 14 days. Pipeline verification runs actionlint and quality-gate regression tests; the merge gate requires backend, pipeline, infrastructure, and container jobs to succeed. External actions are pinned to verified commits, and Dependabot proposes weekly Maven, Docker, and GitHub Actions updates. This update configuration is not a dependency vulnerability scan.
+
+See the [quality assessment](specs/quality-assessment.md) for the measured baseline, reviewed findings, and verification limits.
+
 ## First platform administrator and company onboarding
 
 For the first startup, set `APP_BOOTSTRAP_PLATFORM_ADMIN_ENABLED=true`, `APP_BOOTSTRAP_PLATFORM_ADMIN_EMAIL`, and `APP_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD` through the deployment's secret configuration. `APP_BOOTSTRAP_PLATFORM_ADMIN_FULL_NAME` is optional. Bootstrap creates one global platform administrator only when no platform administrator assignment exists. It does not reset existing credentials. Disable the bootstrap flag and remove its password configuration after initialization.

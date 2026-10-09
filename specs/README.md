@@ -3,6 +3,7 @@
 Specifications describe observable behavior, module boundaries, and the verification required to change them. All new specifications, code identifiers, comments, and engineering documentation are written in English.
 
 - [Engineering standards](engineering-standards.md): implementation and review conventions.
+- [Quality assessment](quality-assessment.md): coverage baseline, static analysis, and reviewed maintenance priorities.
 - [Implementation progress](implementation-plan.md): current work and remaining development tracks.
 - [API error contract](api-errors.md): response envelope, error codes, and client handling rules.
 - [Company onboarding and memberships](company-onboarding-and-memberships.md): initial platform access, company administration, and current authorization.

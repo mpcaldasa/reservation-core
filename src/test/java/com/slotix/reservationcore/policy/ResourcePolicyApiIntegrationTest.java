@@ -192,7 +192,7 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
         Resource resource = resource(company);
         BookingPolicy original = policy(company, 30, 120, 15, 0, 30);
         BookingPolicy replacement = policy(company, 15, 90, 15, 0, 30);
-        Instant from = Instant.now().plusSeconds(86_400);
+        Instant from = Instant.now().plusSeconds(86_400).truncatedTo(ChronoUnit.MICROS);
         Instant to = from.plusSeconds(86_400);
         assignments.saveAndFlush(ResourcePolicy.create(resource.getId(), original.getId(), from, to));
         String token = token(company, MembershipRole.COMPANY_ADMIN);
@@ -218,7 +218,7 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
         Resource resource = resource(company);
         BookingPolicy original = policy(company, 30, 120, 15, 0, 30);
         BookingPolicy replacement = policy(company, 15, 90, 15, 0, 30);
-        Instant from = Instant.now().plusSeconds(86_400);
+        Instant from = Instant.now().plusSeconds(86_400).truncatedTo(ChronoUnit.MICROS);
         Instant start = from.plusSeconds(3600);
         Instant end = start.plusSeconds(1800);
         assignments.saveAndFlush(ResourcePolicy.create(resource.getId(), original.getId(), from, null));

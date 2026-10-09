@@ -7,6 +7,7 @@ on:
   push:
     branches: [main]
   workflow_dispatch:
+  merge_group:
 
 permissions:
   contents: read
@@ -16,23 +17,62 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  workflow:
+    name: Pipeline verification
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+
+      - name: Validate GitHub Actions workflows
+        run: docker run --rm --volume "$PWD:/repo:ro" --workdir /repo rhysd/actionlint:1.7.11@sha256:6f03470d0152251d7f07f7c4dc019dbe7024c72cd952f839544c7798843efa8f -color
+
+      - name: Test quality gate failure paths
+        run: python3 -B -m unittest discover -s scripts/ci -p 'test_*.py' -v
+
   backend:
     name: Backend verification
     runs-on: ubuntu-latest
     timeout-minutes: 30
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Set up Java
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: '25'
           cache: maven
 
-      - name: Run tests and package verification
-        run: ./mvnw -B verify
+      - name: Run tests, coverage, static analysis, and package verification
+        run: ./mvnw -B -Pquality clean verify
+
+      - name: Enforce quality gate and publish summary
+        if: ${{ always() && !cancelled() }}
+        run: python3 -B scripts/ci/quality_gate.py
+
+      - name: Upload quality reports
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: backend-quality-reports
+          if-no-files-found: warn
+          retention-days: 14
+          path: |
+            target/quality-summary.md
+            target/surefire-reports/
+            target/site/jacoco/
+            target/spotbugsXml.xml
+            target/pmd.xml
+            target/cpd.xml
+            target/site/pmd.html
+            target/site/cpd.html
 
   infrastructure:
     name: Infrastructure verification
@@ -40,13 +80,15 @@ jobs:
     timeout-minutes: 15
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Validate local service configuration
         run: docker compose config --quiet
 
       - name: Set up Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.10.0
           terraform_wrapper: false
@@ -66,7 +108,9 @@ jobs:
     timeout-minutes: 20
     steps:
       - name: Check out source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
 
       - name: Build application image
         run: docker build --tag slotix-reservation-core:ci .
@@ -74,7 +118,7 @@ jobs:
   merge-gate:
     name: Merge gate
     if: always()
-    needs: [backend, infrastructure, container]
+    needs: [workflow, backend, infrastructure, container]
     runs-on: ubuntu-latest
     steps:
       - name: Require every verification job to pass
@@ -82,9 +126,12 @@ jobs:
           BACKEND_RESULT: ${{ needs.backend.result }}
           INFRASTRUCTURE_RESULT: ${{ needs.infrastructure.result }}
           CONTAINER_RESULT: ${{ needs.container.result }}
+          WORKFLOW_RESULT: ${{ needs.workflow.result }}
         run: |
           printf 'Backend: %s\nInfrastructure: %s\nContainer: %s\n' \
             "$BACKEND_RESULT" "$INFRASTRUCTURE_RESULT" "$CONTAINER_RESULT"
           test "$BACKEND_RESULT" = success
           test "$INFRASTRUCTURE_RESULT" = success
           test "$CONTAINER_RESULT" = success
+          printf 'Pipeline: %s\n' "$WORKFLOW_RESULT"
+          test "$WORKFLOW_RESULT" = success
