@@ -86,6 +86,8 @@ Automatic completion of unattended bookings, customer self check-in, and early-a
 | Rescheduling preserves status, moves the allocation, and emits one audit and event | `BookingApiIntegrationTest.reschedulingMovesTheBookingAndAllocationOnceAndIsIdempotent` |
 | Pending expiry honors the exact timeout cutoff and stages one expiration notification | `BookingLifecycleApiIntegrationTest.pendingExpirationUsesTheExactCutoffAndStagesOneNotification` |
 | Idempotency cleanup deletes keys at the expiry boundary and preserves unexpired keys | `BookingLifecycleApiIntegrationTest.idempotencyCleanupDeletesKeysAtTheExpiryBoundaryOnly` |
+| Customer cancellation follows the exact policy notice deadline through the application clock | `BookingApiIntegrationTest.customerCancellationUsesTheInjectedClockAtTheNoticeBoundary` |
+| Concurrent expiration passes create one terminal transition and event | `BookingLifecycleApiIntegrationTest.concurrentExpirationPassesProduceOnlyOneTransitionAndNotification` |
 | English attendance notification content | `BookingEmailTemplateTest` |
 
-Concurrent expiration-worker contention and additional rescheduling failure-path scenarios remain pending. The expiration worker is designed for multi-instance execution through row-level skip-locked claims.
+Additional rescheduling failure-path scenarios remain pending. The expiration worker is designed for multi-instance execution through row-level skip-locked claims.

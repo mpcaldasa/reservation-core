@@ -379,6 +379,15 @@ class ResourcePolicyApiIntegrationTest extends PostgresIntegrationTestSupport {
                 .header("Authorization", bearer(token(company, MembershipRole.COMPANY_ADMIN))))
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.code").value("BOOKING_POLICY_HAS_ACTIVE_ASSIGNMENTS"));
+        mvc.perform(put(endpoint).header("Authorization", bearer(token(company, MembershipRole.COMPANY_ADMIN)))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"name":"Changed policy","minDurationMinutes":30,"maxDurationMinutes":120,
+                     "slotIncrementMinutes":15,"minNoticeMinutes":0,"maxAdvanceDays":30,
+                     "cancellationNoticeMinutes":0,"approvalRequired":false,"allowCustomerCancel":true}
+                    """))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("BOOKING_POLICY_ASSIGNED_CANNOT_EDIT"));
         assertEquals("ACTIVE", policies.findById(policy.getId()).orElseThrow().getStatus());
     }
 

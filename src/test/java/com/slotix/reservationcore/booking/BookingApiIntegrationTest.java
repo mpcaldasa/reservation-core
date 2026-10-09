@@ -31,8 +31,10 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.transaction.support.TransactionTemplate;
 
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalTime;
@@ -47,6 +49,7 @@ import java.util.concurrent.Future;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
@@ -73,9 +76,11 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
     @Autowired private TransactionTemplate transactions;
     @Autowired private JdbcTemplate jdbc;
     @Autowired private NotificationQueueWorker queueWorker;
+    @MockitoBean private Clock clock;
 
     @BeforeEach
     void clean() {
+        when(clock.instant()).thenReturn(Instant.now());
         jdbc.update("delete from identity_email_deliveries");
         jdbc.update("delete from company_invitations");
         jdbc.update("delete from notification_deliveries");
@@ -156,6 +161,39 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
             Long.class, bookingId));
         assertEquals(1L, jdbc.queryForObject("select count(*) from outbox_events where aggregate_id = ? and event_type = 'BOOKING_RESCHEDULED'",
             Long.class, bookingId));
+    }
+
+    @Test
+    void customerCancellationUsesTheInjectedClockAtTheNoticeBoundary() throws Exception {
+        Fixture allowed = fixture(1);
+        String allowedRequest = body(allowed);
+        String created = mvc.perform(post("/api/v1/bookings").header("Authorization", bearer(allowed.token()))
+                .header("Idempotency-Key", "cancellation-at-deadline").contentType(MediaType.APPLICATION_JSON)
+                .content(allowedRequest))
+            .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        UUID allowedBookingId = UUID.fromString(json.readTree(created).get("id").asText());
+        jdbc.update("update booking_policies set cancellation_notice_minutes = 30 where company_id = ?",
+            allowed.companyId());
+        when(clock.instant()).thenReturn(allowed.start().minusSeconds(1800));
+
+        mvc.perform(post("/api/v1/bookings/{id}/cancel", allowedBookingId)
+                .header("Authorization", bearer(allowed.token())).contentType(MediaType.APPLICATION_JSON).content("{}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CANCELLED"));
+
+        Fixture denied = fixture(1);
+        String deniedCreated = mvc.perform(post("/api/v1/bookings").header("Authorization", bearer(denied.token()))
+                .header("Idempotency-Key", "cancellation-after-deadline").contentType(MediaType.APPLICATION_JSON)
+                .content(body(denied)))
+            .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        UUID deniedBookingId = UUID.fromString(json.readTree(deniedCreated).get("id").asText());
+        jdbc.update("update booking_policies set cancellation_notice_minutes = 30 where company_id = ?",
+            denied.companyId());
+        when(clock.instant()).thenReturn(denied.start().minusSeconds(1800).plusNanos(1));
+
+        mvc.perform(post("/api/v1/bookings/{id}/cancel", deniedBookingId)
+                .header("Authorization", bearer(denied.token())).contentType(MediaType.APPLICATION_JSON).content("{}"))
+            .andExpect(status().isUnprocessableContent())
+            .andExpect(jsonPath("$.code").value("CUSTOMER_CANCELLATION_NOT_ALLOWED"));
     }
 
     @Test

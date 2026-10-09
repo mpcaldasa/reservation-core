@@ -28,6 +28,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
@@ -51,13 +52,14 @@ public class BookingService {
     private final AuditService audit;
     private final NotificationOutboxService notifications;
     private final SlotixMetrics metrics;
+    private final Clock clock;
 
     public BookingService(BookingRepository bookings, BookingResourceRepository occupied, IdempotencyKeyService idempotencyKeys,
                           CompanyRepository companies, CompanyMembershipRepository memberships, ResourceAccessService resources,
                           ResourcePolicyRepository assignments,
                           BookingPolicyRepository policies, AvailabilityService availability, TenantAccessService access,
                           EntityManager entityManager, AuditService audit, NotificationOutboxService notifications,
-                          SlotixMetrics metrics) {
+                          SlotixMetrics metrics, Clock clock) {
         this.bookings = bookings;
         this.occupied = occupied;
         this.idempotencyKeys = idempotencyKeys;
@@ -72,6 +74,7 @@ public class BookingService {
         this.audit = audit;
         this.notifications = notifications;
         this.metrics = metrics;
+        this.clock = clock;
     }
 
     @Transactional
@@ -193,7 +196,9 @@ public class BookingService {
                 .flatMap(item -> policies.findByIdAndCompanyIdAndDeletedAtIsNull(item.getPolicyId(), companyId))
                 .orElseThrow(() -> new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                     ApiErrorCode.BOOKING_POLICY_UNAVAILABLE, "The booking policy for this reservation is unavailable"));
-            if (!policy.isAllowCustomerCancel() || booking.getStartAt().isBefore(Instant.now().plusSeconds(policy.getCancellationNoticeMinutes() * 60L))) {
+            Instant cancellationDeadline = clock.instant()
+                .plusSeconds(policy.getCancellationNoticeMinutes() * 60L);
+            if (!policy.isAllowCustomerCancel() || booking.getStartAt().isBefore(cancellationDeadline)) {
                 throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT,
                     ApiErrorCode.CUSTOMER_CANCELLATION_NOT_ALLOWED,
                     "Customer cancellation is not allowed by the booking policy at this time");

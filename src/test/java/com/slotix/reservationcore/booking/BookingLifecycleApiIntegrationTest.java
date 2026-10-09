@@ -295,6 +295,32 @@ class BookingLifecycleApiIntegrationTest extends PostgresIntegrationTestSupport 
         assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM idempotency_keys WHERE id = ?", Long.class, freshId));
     }
 
+    @Test
+    void concurrentExpirationPassesProduceOnlyOneTransitionAndNotification() throws Exception {
+        Fixture fixture = fixture(BookingStatus.PENDING);
+        jdbc.update("UPDATE bookings SET created_at = ? WHERE id = ?", Timestamp.from(NOW.minusSeconds(1800)),
+            fixture.bookingId());
+        CountDownLatch start = new CountDownLatch(1);
+        try (var executor = Executors.newFixedThreadPool(2)) {
+            var first = executor.submit(() -> expireAfterStart(start));
+            var second = executor.submit(() -> expireAfterStart(start));
+            start.countDown();
+            first.get(10, TimeUnit.SECONDS);
+            second.get(10, TimeUnit.SECONDS);
+        }
+
+        assertEquals("EXPIRED", bookingStatus(fixture));
+        assertEquals("EXPIRED", allocationStatus(fixture));
+        assertEquals(1, auditCount(fixture));
+        assertEquals(1, eventCount(fixture));
+    }
+
+    private Void expireAfterStart(CountDownLatch start) throws InterruptedException {
+        assertTrue(start.await(10, TimeUnit.SECONDS));
+        expirationWorker.expirePendingBookings();
+        return null;
+    }
+
     private List<Integer> concurrentActions(Fixture fixture, String firstAction, String secondAction) throws Exception {
         CountDownLatch ready = new CountDownLatch(2);
         CountDownLatch start = new CountDownLatch(1);

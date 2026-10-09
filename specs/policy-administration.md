@@ -22,7 +22,7 @@ Create and update share the policy fields: name, minimum and maximum duration, s
 ## Safe lifecycle rules
 
 - Updates are allowed only before a policy has ever been assigned. Once a `resource_policies` row references a policy, its terms remain immutable so previous bookings retain the original cancellation behavior. Create another policy for changed terms.
-- Deactivation returns HTTP 409 while any resource assignment has no end or ends in the future. After assignments end, the policy can be deactivated. Its historical assignments remain, and existing booking cancellation can still read the inactive policy's terms.
+- Deactivation returns HTTP 409 while any resource assignment has no end or ends in the future. After assignments end, the policy can be deactivated. Its historical assignments remain. Inactive policies cannot produce new availability or bookings; customer cancellation continues to enforce the policy attached to the booking's interval.
 - Only active policies can receive new resource assignments or produce new availability and bookings. Reactivating an inactive policy restores those behaviors for its existing assignments.
 - Repeated activate or deactivate requests are no-ops: they return the current policy without changing timestamps or adding audit entries.
 - Create, effective update, activation, and deactivation record a corresponding audit event in the same transaction.
@@ -34,4 +34,4 @@ Create and update share the policy fields: name, minimum and maximum duration, s
 
 ## Verification status
 
-Integration coverage verifies assignment overlap and interval errors, assigned-policy lifecycle restrictions, unassigned policy updates, idempotent activation/deactivation, policy replacement, assignment closure and removal, active-reservation protection, and serialization of overlapping concurrent assignments. Historical cancellation behavior still needs automated coverage.
+Integration coverage verifies assignment overlap and interval errors, assigned-policy lifecycle restrictions, unassigned policy updates, idempotent activation/deactivation, policy replacement, assignment closure and removal, active-reservation protection, and serialization of overlapping concurrent assignments. Historical assignment rows remain available for audit and lookup.
