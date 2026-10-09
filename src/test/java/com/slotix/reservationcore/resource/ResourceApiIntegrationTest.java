@@ -4,6 +4,9 @@ import com.slotix.reservationcore.PostgresIntegrationTestSupport;
 import com.slotix.reservationcore.common.JwtService;
 import com.slotix.reservationcore.availability.AvailabilityRuleRepository;
 import com.slotix.reservationcore.availability.ResourceBlockRepository;
+import com.slotix.reservationcore.availability.ResourceBlock;
+import com.slotix.reservationcore.availability.ResourceBlockType;
+import com.slotix.reservationcore.availability.AvailabilityRule;
 import com.slotix.reservationcore.policy.BookingPolicyRepository;
 import com.slotix.reservationcore.policy.ResourcePolicyRepository;
 import com.slotix.reservationcore.booking.BookingRepository;
@@ -38,6 +41,7 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -173,6 +177,80 @@ class ResourceApiIntegrationTest extends PostgresIntegrationTestSupport {
             .andExpect(status().isConflict())
             .andExpect(jsonPath("$.code").value("ACTIVE_RESERVATIONS_PREVENT_RESOURCE_DELETION"))
             .andExpect(jsonPath("$.error").value("The resource cannot be deleted while active reservations remain"));
+    }
+
+    @Test
+    void resourceLifecycleAndDetailUpdatesAreAuditedOnce() throws Exception {
+        Company company = activeCompany("resource-lifecycle");
+        Resource resource = resourceRepository.save(Resource.create(company.getId(), "Studio", null,
+            ResourceType.SPACE, 2, ResourceVisibility.MEMBERS));
+        String token = companyAdminToken(company);
+        String resourceUrl = "/api/v1/companies/%s/resources/%s".formatted(company.getId(), resource.getId());
+
+        mockMvc.perform(post(resourceUrl + "/activate").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"));
+        mockMvc.perform(post(resourceUrl + "/activate").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("ACTIVE"));
+
+        mockMvc.perform(put(resourceUrl).header("Authorization", "Bearer " + token)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"name":"Updated Studio","description":"Renovated","resourceType":"SPACE","capacity":2,"visibility":"MEMBERS"}
+                    """))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.name").value("Updated Studio"))
+            .andExpect(jsonPath("$.status").value("ACTIVE"));
+
+        mockMvc.perform(post(resourceUrl + "/deactivate").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("INACTIVE"));
+        mockMvc.perform(post(resourceUrl + "/deactivate").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("INACTIVE"));
+
+        assertEquals(1L, jdbc.queryForObject("select count(*) from audit_logs where action = 'RESOURCE_ACTIVATED'", Long.class));
+        assertEquals(1L, jdbc.queryForObject("select count(*) from audit_logs where action = 'RESOURCE_UPDATED'", Long.class));
+        assertEquals(1L, jdbc.queryForObject("select count(*) from audit_logs where action = 'RESOURCE_DEACTIVATED'", Long.class));
+    }
+
+    @Test
+    void availabilityRulesAndBlocksCanBeUpdatedAndSoftDeleted() throws Exception {
+        Company company = activeCompany("resource-schedule-lifecycle");
+        Resource resource = resourceRepository.save(Resource.create(company.getId(), "Studio", null,
+            ResourceType.SPACE, 1, ResourceVisibility.MEMBERS));
+        String token = companyAdminToken(company);
+        AvailabilityRule rule = availabilityRuleRepository.save(AvailabilityRule.create(company.getId(), resource.getId(),
+            (short) 1, java.time.LocalTime.of(9, 0), java.time.LocalTime.of(17, 0), null, null));
+        ResourceBlock block = resourceBlockRepository.save(ResourceBlock.create(company.getId(), resource.getId(),
+            Instant.parse("2026-10-10T12:00:00Z"), Instant.parse("2026-10-10T13:00:00Z"), "Maintenance",
+            ResourceBlockType.MAINTENANCE));
+        String baseUrl = "/api/v1/companies/%s/resources/%s".formatted(company.getId(), resource.getId());
+
+        mockMvc.perform(put(baseUrl + "/availability-rules/" + rule.getId())
+                .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"weekday\":2,\"startLocalTime\":\"10:00:00\",\"endLocalTime\":\"18:00:00\"}"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.weekday").value(2))
+            .andExpect(jsonPath("$.startLocalTime").value("10:00:00"));
+
+        mockMvc.perform(put(baseUrl + "/blocks/" + block.getId())
+                .header("Authorization", "Bearer " + token).contentType(MediaType.APPLICATION_JSON)
+                .content("""
+                    {"startAt":"2026-10-10T14:00:00Z","endAt":"2026-10-10T15:00:00Z","reason":"Private event","blockType":"ADMIN_BLOCK"}
+                    """))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.reason").value("Private event"))
+            .andExpect(jsonPath("$.blockType").value("ADMIN_BLOCK"));
+
+        for (String path : List.of("/availability-rules/" + rule.getId(), "/blocks/" + block.getId())) {
+            mockMvc.perform(delete(baseUrl + path).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+            mockMvc.perform(delete(baseUrl + path).header("Authorization", "Bearer " + token))
+                .andExpect(status().isNoContent());
+        }
+        mockMvc.perform(get(baseUrl + "/availability-rules").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        mockMvc.perform(get(baseUrl + "/blocks").header("Authorization", "Bearer " + token))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+        assertNotNull(availabilityRuleRepository.findById(rule.getId()).orElseThrow().getDeletedAt());
+        assertNotNull(resourceBlockRepository.findById(block.getId()).orElseThrow().getDeletedAt());
+        assertEquals(1L, jdbc.queryForObject("select count(*) from audit_logs where action = 'AVAILABILITY_RULE_DELETED'", Long.class));
+        assertEquals(1L, jdbc.queryForObject("select count(*) from audit_logs where action = 'RESOURCE_BLOCK_DELETED'", Long.class));
     }
 
     private Company activeCompany(String slug) {

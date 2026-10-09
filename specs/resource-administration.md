@@ -29,6 +29,6 @@ Effective detail changes append `RESOURCE_UPDATED` with JSON snapshots of the re
 
 Schedule and block changes require `COMPANY_ADMIN`, validate the same constraints as creation, preserve their original identifiers and creation times, and use `updatedAt` at microsecond precision. Deletes set `deletedAt`, leave historical rows intact, and remove the item from future schedule and availability reads. A second delete of the same item returns HTTP 204 without another audit entry. Schedule and block mutations lock the active company before the resource and item, so booking creation observes either the prior or committed schedule configuration.
 
-## Remaining work
+## Acceptance coverage
 
-Automated integration coverage verifies idempotent resource deletion and active-reservation protection. Resource activation/deactivation and schedule/block update and deletion edge cases still need coverage.
+`ResourceApiIntegrationTest` covers idempotent deletion, active-reservation protection, activation/deactivation and detail-update audit behavior, plus schedule and block updates, soft deletion, and repeated-delete idempotency.
