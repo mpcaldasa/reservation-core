@@ -28,6 +28,7 @@ Business errors use `ApiException` with a specific `ApiErrorCode`. Request valid
 | `POLICY_ASSIGNMENT_NOT_FUTURE` | 409 | Removal was requested for an assignment that has started |
 | `ACTIVE_RESERVATIONS_PREVENT_ASSIGNMENT_CHANGE` | 409 | Active reservations prevent closing or replacing the assigned policy |
 | `ACTIVE_RESERVATIONS_PREVENT_ASSIGNMENT_REMOVAL` | 409 | Active reservations prevent removing the assignment |
+| `POLICY_ASSIGNMENT_NOT_FOUND` | 404 | The assignment does not exist for this resource and effective start |
 | `ACTIVE_RESERVATIONS_PREVENT_RESOURCE_DELETION` | 409 | Active reservations prevent deleting the resource |
 | `RESOURCE_CAPACITY_LOCKED_BY_ACTIVE_RESERVATIONS` | 409 | Capacity cannot change while active reservations remain |
 
@@ -70,6 +71,7 @@ Business errors use `ApiException` with a specific `ApiErrorCode`. Request valid
 | `BOOKING_POLICY_ASSIGNED_CANNOT_EDIT` | 409 | Assigned policies cannot be edited |
 | `BOOKING_POLICY_HAS_ACTIVE_ASSIGNMENTS` | 409 | A current or future assignment prevents policy deactivation |
 | `BOOKING_POLICY_INVALID` | 422 | Policy values are invalid or do not align with the slot increment |
+| `POLICY_NOT_FOUND` | 404 | The active policy does not exist in this company |
 | `AVAILABILITY_RULE_NOT_FOUND` | 404 | The availability rule does not exist in the current resource |
 | `AVAILABILITY_RULE_INVALID` | 422 | The recurring availability interval or date range is invalid |
 | `RESOURCE_BLOCK_NOT_FOUND` | 404 | The resource block does not exist in the current resource |
@@ -82,16 +84,19 @@ Business errors use `ApiException` with a specific `ApiErrorCode`. Request valid
 | --- | --- | --- |
 | `IDEMPOTENCY_KEY_INVALID` | 400 | The idempotency key is missing, blank, or too long |
 | `IDEMPOTENCY_KEY_REUSED` | 422 | The key was reused for a different request |
+| `IDEMPOTENT_BOOKING_NOT_FOUND` | 409 | The idempotency key references a booking that no longer exists |
 | `BOOKING_NOT_FOUND` | 404 | The booking does not exist in the current company |
 | `CUSTOMER_MEMBERSHIP_REQUIRED` | 422 | The customer does not have an active company membership |
 | `BOOKING_INTERVAL_INVALID` | 422 | A new booking interval is invalid |
 | `BOOKING_SLOT_UNAVAILABLE` | 409 | The requested time slot is unavailable |
+| `CALENDAR_RANGE_INVALID` | 400 | The calendar range must be positive and no longer than 90 days |
 | `BOOKING_POLICY_UNAVAILABLE` | 422 | No active policy covers the booking interval |
 | `RESOURCE_INACTIVE` | 422 | The resource cannot accept or move bookings while inactive |
 | `BOOKING_STATE_INVALID` | 422 | The booking cannot transition from its current state |
 | `BOOKING_ALLOCATION_NOT_FOUND` | 409 | The booking's resource allocation is missing |
 | `BOOKING_ALLOCATION_STATE_MISMATCH` | 409 | The booking and allocation statuses do not match |
 | `CUSTOMER_CANCELLATION_NOT_ALLOWED` | 422 | The customer is outside the policy cancellation window |
+| `CANCELLATION_REASON_REQUIRED` | 422 | Staff cancellations require a reason |
 | `CUSTOMER_RESCHEDULING_NOT_ALLOWED` | 422 | The customer is outside the policy rescheduling window |
 | `RESCHEDULE_INTERVAL_INVALID` | 422 | The requested replacement interval is invalid |
 | `RESCHEDULE_POLICY_CONSTRAINT_VIOLATION` | 422 | The replacement duration violates the active policy |
@@ -99,6 +104,20 @@ Business errors use `ApiException` with a specific `ApiErrorCode`. Request valid
 ## Security and request errors
 
 Authentication failures return `AUTHENTICATION_REQUIRED` or `INVALID_CREDENTIALS`; authorization failures return `ACCESS_DENIED`. Invalid JSON, path values, query values, or bean validation return `INVALID_REQUEST` or `VALIDATION_FAILED`. Validation responses include field details under `fields`. Unsupported methods and content types return `METHOD_NOT_ALLOWED` and `UNSUPPORTED_MEDIA_TYPE`.
+
+## Operations and compatibility errors
+
+| Code | HTTP status | Meaning |
+| --- | --- | --- |
+| `RESOURCE_NOT_FOUND` | 404 | The requested resource does not exist in the current company or context |
+| `NOTIFICATION_DELIVERY_NOT_FOUND` | 404 | The notification delivery does not exist in the current company |
+| `NOTIFICATION_DELIVERY_NOT_REPLAYABLE` | 409 | Only failed notification deliveries can be replayed |
+| `NOTIFICATION_STATUS_INVALID` | 400 | The requested notification status filter is invalid |
+| `OPERATIONAL_PAGE_INVALID` | 400 | The audit or notification page parameters are outside the supported range |
+| `DATA_CONFLICT` | 409 | A persisted record conflicts with the requested operation |
+| `REQUEST_CONFLICT` | 409 | Compatibility fallback for an unmapped HTTP conflict |
+| `REQUEST_REJECTED` | Varies | Compatibility fallback for an otherwise unmapped response status |
+| `INTERNAL_ERROR` | 500 | An unexpected server failure occurred; details are kept out of the response |
 
 ## Verification status
 
