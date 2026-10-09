@@ -6,6 +6,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.Timestamp;
 import java.time.Clock;
 import java.time.temporal.ChronoUnit;
 
@@ -40,6 +41,6 @@ public class IdempotencyKeyCleanupWorker {
                 LIMIT %d
                 FOR UPDATE SKIP LOCKED
             )
-            """.formatted(BATCH_SIZE), clock.instant().truncatedTo(ChronoUnit.MICROS));
+            """.formatted(BATCH_SIZE), Timestamp.from(clock.instant().truncatedTo(ChronoUnit.MICROS)));
     }
 }

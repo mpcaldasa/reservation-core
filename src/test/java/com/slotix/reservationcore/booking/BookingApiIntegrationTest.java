@@ -49,6 +49,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -126,6 +127,35 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
         assertEquals(3L, jdbc.queryForObject("select count(*) from outbox_events", Long.class));
         queueWorker.stagePendingDeliveries();
         assertEquals(3L, jdbc.queryForObject("select count(*) from notification_deliveries where status='PENDING'", Long.class));
+    }
+
+    @Test
+    void reschedulingMovesTheBookingAndAllocationOnceAndIsIdempotent() throws Exception {
+        Fixture fixture = fixture(1);
+        String created = mvc.perform(post("/api/v1/bookings").header("Authorization", bearer(fixture.token()))
+                .header("Idempotency-Key", "reschedule-source").contentType(MediaType.APPLICATION_JSON).content(body(fixture)))
+            .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        UUID bookingId = UUID.fromString(json.readTree(created).get("id").asText());
+        Instant newStart = fixture.start().plusSeconds(30 * 60L);
+        Instant newEnd = fixture.end().plusSeconds(30 * 60L);
+        String rescheduleRequest = "{\"startAt\":\"%s\",\"endAt\":\"%s\"}".formatted(newStart, newEnd);
+        String endpoint = "/api/v1/bookings/" + bookingId + "/reschedule";
+
+        mvc.perform(put(endpoint).header("Authorization", bearer(fixture.token()))
+                .contentType(MediaType.APPLICATION_JSON).content(rescheduleRequest))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("CONFIRMED"))
+            .andExpect(jsonPath("$.startAt").value(newStart.toString()))
+            .andExpect(jsonPath("$.endAt").value(newEnd.toString()));
+        mvc.perform(put(endpoint).header("Authorization", bearer(fixture.token()))
+                .contentType(MediaType.APPLICATION_JSON).content(rescheduleRequest))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.startAt").value(newStart.toString()));
+
+        assertEquals(newStart, jdbc.queryForObject("select start_at from bookings where id = ?", Instant.class, bookingId));
+        assertEquals(newStart, jdbc.queryForObject("select start_at from booking_resources where booking_id = ?", Instant.class, bookingId));
+        assertEquals(1L, jdbc.queryForObject("select count(*) from audit_logs where entity_id = ? and action = 'BOOKING_RESCHEDULED'",
+            Long.class, bookingId));
+        assertEquals(1L, jdbc.queryForObject("select count(*) from outbox_events where aggregate_id = ? and event_type = 'BOOKING_RESCHEDULED'",
+            Long.class, bookingId));
     }
 
     @Test

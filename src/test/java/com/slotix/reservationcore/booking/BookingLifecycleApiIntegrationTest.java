@@ -65,6 +65,8 @@ class BookingLifecycleApiIntegrationTest extends PostgresIntegrationTestSupport 
     @Autowired private BookingRepository bookings;
     @Autowired private BookingResourceRepository allocations;
     @Autowired private NotificationQueueWorker queue;
+    @Autowired private PendingBookingExpirationWorker expirationWorker;
+    @Autowired private IdempotencyKeyCleanupWorker idempotencyKeyCleanupWorker;
     @MockitoBean private Clock clock;
 
     private final List<Fixture> fixtures = new ArrayList<>();
@@ -249,6 +251,48 @@ class BookingLifecycleApiIntegrationTest extends PostgresIntegrationTestSupport 
             .andExpect(status().isOk()).andExpect(jsonPath("$.completedAt").value(completedAt));
         mvc.perform(post(endpoint(fixture, "complete")).header("Authorization", fixture.managerToken()))
             .andExpect(status().isOk()).andExpect(jsonPath("$.completedAt").value(completedAt));
+    }
+
+    @Test
+    void pendingExpirationUsesTheExactCutoffAndStagesOneNotification() {
+        Fixture due = fixture(BookingStatus.PENDING);
+        Fixture fresh = fixture(BookingStatus.PENDING);
+        jdbc.update("UPDATE bookings SET created_at = ? WHERE id = ?", Timestamp.from(NOW.minusSeconds(1800)), due.bookingId());
+        jdbc.update("UPDATE bookings SET created_at = ? WHERE id = ?", Timestamp.from(NOW.minusSeconds(1799)), fresh.bookingId());
+
+        expirationWorker.expirePendingBookings();
+
+        assertEquals("EXPIRED", bookingStatus(due));
+        assertEquals("EXPIRED", allocationStatus(due));
+        assertEquals("PENDING", bookingStatus(fresh));
+        assertEquals(1, auditCount(due));
+        assertEquals(1, eventCount(due));
+        assertNull(jdbc.queryForObject("SELECT actor_user_id FROM audit_logs WHERE entity_id = ?", UUID.class,
+            due.bookingId()));
+
+        queue.stagePendingDeliveries();
+        assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM notification_deliveries WHERE booking_id = ? AND template = 'BOOKING_EXPIRED'",
+            Long.class, due.bookingId()));
+        assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM notification_deliveries WHERE booking_id = ?",
+            Long.class, fresh.bookingId()));
+    }
+
+    @Test
+    void idempotencyCleanupDeletesKeysAtTheExpiryBoundaryOnly() {
+        Fixture fixture = fixture(BookingStatus.CONFIRMED);
+        UUID expiredId = UUID.randomUUID();
+        UUID freshId = UUID.randomUUID();
+        jdbc.update("""
+            INSERT INTO idempotency_keys (id, company_id, idempotency_key, request_hash, booking_id, created_at, expires_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?), (?, ?, ?, ?, ?, ?, ?)
+            """, expiredId, fixture.companyId(), "expired-key", "hash-expired", fixture.bookingId(),
+            Timestamp.from(NOW.minusSeconds(86400)), Timestamp.from(NOW),
+            freshId, fixture.companyId(), "fresh-key", "hash-fresh", fixture.bookingId(),
+            Timestamp.from(NOW.minusSeconds(86399)), Timestamp.from(NOW.plusNanos(1000)));
+
+        assertTrue(idempotencyKeyCleanupWorker.deleteExpiredKeys() >= 1);
+        assertEquals(0L, jdbc.queryForObject("SELECT count(*) FROM idempotency_keys WHERE id = ?", Long.class, expiredId));
+        assertEquals(1L, jdbc.queryForObject("SELECT count(*) FROM idempotency_keys WHERE id = ?", Long.class, freshId));
     }
 
     private List<Integer> concurrentActions(Fixture fixture, String firstAction, String secondAction) throws Exception {
