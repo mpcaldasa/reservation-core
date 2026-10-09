@@ -84,10 +84,12 @@ Automatic completion of unattended bookings, customer self check-in, and early-a
 | PostgreSQL protects attendance metadata even when application guards are bypassed | `BookingLifecycleApiIntegrationTest.databaseProtectsAttendanceMetadata` |
 | Timestamp precision remains stable across initial responses and retries | `BookingLifecycleApiIntegrationTest.attendanceTimesSurviveDatabaseRoundTrips` |
 | Rescheduling preserves status, moves the allocation, and emits one audit and event | `BookingApiIntegrationTest.reschedulingMovesTheBookingAndAllocationOnceAndIsIdempotent` |
+| Invalid intervals, unavailable slots, and non-owner customers cannot reschedule | `BookingApiIntegrationTest.reschedulingRejectsInvalidIntervalsUnavailableSlotsAndOtherCustomersWithoutSideEffects` |
 | Pending expiry honors the exact timeout cutoff and stages one expiration notification | `BookingLifecycleApiIntegrationTest.pendingExpirationUsesTheExactCutoffAndStagesOneNotification` |
 | Idempotency cleanup deletes keys at the expiry boundary and preserves unexpired keys | `BookingLifecycleApiIntegrationTest.idempotencyCleanupDeletesKeysAtTheExpiryBoundaryOnly` |
 | Customer cancellation follows the exact policy notice deadline through the application clock | `BookingApiIntegrationTest.customerCancellationUsesTheInjectedClockAtTheNoticeBoundary` |
 | Concurrent expiration passes create one terminal transition and event | `BookingLifecycleApiIntegrationTest.concurrentExpirationPassesProduceOnlyOneTransitionAndNotification` |
+| No-show timing, idempotency, capacity release, and notification | `BookingLifecycleApiIntegrationTest.noShowRequiresTheBookingEndAndReleasesCapacityOnce` |
 | English attendance notification content | `BookingEmailTemplateTest` |
 
 Additional rescheduling failure-path scenarios remain pending. The expiration worker is designed for multi-instance execution through row-level skip-locked claims.

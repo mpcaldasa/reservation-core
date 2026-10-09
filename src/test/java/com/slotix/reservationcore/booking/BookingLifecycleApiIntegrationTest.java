@@ -315,6 +315,34 @@ class BookingLifecycleApiIntegrationTest extends PostgresIntegrationTestSupport 
         assertEquals(1, eventCount(fixture));
     }
 
+    @Test
+    void noShowRequiresTheBookingEndAndReleasesCapacityOnce() throws Exception {
+        Fixture fixture = fixture(BookingStatus.CONFIRMED);
+        when(clock.instant()).thenReturn(END.minusSeconds(1));
+        mvc.perform(post(endpoint(fixture, "no-show")).header("Authorization", fixture.adminToken()))
+            .andExpect(status().isUnprocessableContent())
+            .andExpect(jsonPath("$.code").value("BOOKING_STATE_INVALID"));
+        assertEquals("CONFIRMED", bookingStatus(fixture));
+        assertEquals(0, auditCount(fixture));
+
+        when(clock.instant()).thenReturn(END);
+        mvc.perform(post(endpoint(fixture, "no-show")).header("Authorization", fixture.adminToken()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.status").value("NO_SHOW"))
+            .andExpect(jsonPath("$.noShowAt").value(END.toString()))
+            .andExpect(jsonPath("$.noShowBy").value(fixture.adminId().toString()));
+        mvc.perform(post(endpoint(fixture, "no-show")).header("Authorization", fixture.managerToken()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.noShowBy").value(fixture.adminId().toString()));
+
+        assertEquals("NO_SHOW", allocationStatus(fixture));
+        assertEquals(0, allocations.occupied(fixture.resourceId(), START, END));
+        assertEquals(1, auditCount(fixture));
+        assertEquals(1, eventCount(fixture));
+        queue.stagePendingDeliveries();
+        assertEquals(1L, jdbc.queryForObject(
+            "SELECT count(*) FROM notification_deliveries WHERE booking_id = ? AND template = 'BOOKING_NO_SHOW'",
+            Long.class, fixture.bookingId()));
+    }
+
     private Void expireAfterStart(CountDownLatch start) throws InterruptedException {
         assertTrue(start.await(10, TimeUnit.SECONDS));
         expirationWorker.expirePendingBookings();

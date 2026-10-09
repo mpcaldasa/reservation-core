@@ -197,6 +197,45 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
+    void reschedulingRejectsInvalidIntervalsUnavailableSlotsAndOtherCustomers() throws Exception {
+        Fixture fixture = fixture(1);
+        String created = mvc.perform(post("/api/v1/bookings").header("Authorization", bearer(fixture.token()))
+                .header("Idempotency-Key", "reschedule-errors").contentType(MediaType.APPLICATION_JSON)
+                .content(body(fixture)))
+            .andExpect(status().isCreated()).andReturn().getResponse().getContentAsString();
+        UUID bookingId = UUID.fromString(json.readTree(created).get("id").asText());
+        String endpoint = "/api/v1/bookings/" + bookingId + "/reschedule";
+        Instant nextSlot = fixture.start().plusSeconds(1800);
+
+        mvc.perform(put(endpoint).header("Authorization", bearer(fixture.token()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"startAt\":\"" + nextSlot + "\",\"endAt\":\"" + nextSlot.plusSeconds(30) + "\"}"))
+            .andExpect(status().isUnprocessableContent())
+            .andExpect(jsonPath("$.code").value("RESCHEDULE_INTERVAL_INVALID"));
+
+        Instant outsideSchedule = fixture.start().plusSeconds(3600);
+        mvc.perform(put(endpoint).header("Authorization", bearer(fixture.token()))
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"startAt\":\"" + outsideSchedule + "\",\"endAt\":\"" + outsideSchedule.plusSeconds(1800) + "\"}"))
+            .andExpect(status().isConflict())
+            .andExpect(jsonPath("$.code").value("BOOKING_SLOT_UNAVAILABLE"));
+
+        User otherCustomer = users.save(User.create(UUID.randomUUID() + "@example.test", "unused", "Other customer"));
+        memberships.save(CompanyMembership.create(fixture.companyId(), otherCustomer.getId(), Set.of(MembershipRole.CUSTOMER)));
+        String otherToken = jwt.generateToken(otherCustomer.getId(), fixture.companyId(), List.of("CUSTOMER"));
+        mvc.perform(put(endpoint).header("Authorization", bearer(otherToken)).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"startAt\":\"" + nextSlot + "\",\"endAt\":\"" + nextSlot.plusSeconds(1800) + "\"}"))
+            .andExpect(status().isForbidden());
+
+        assertEquals(fixture.start(), jdbc.queryForObject("select start_at from bookings where id = ?", Instant.class, bookingId));
+        assertEquals(0L, jdbc.queryForObject(
+            "select count(*) from audit_logs where entity_id = ? and action = 'BOOKING_RESCHEDULED'", Long.class, bookingId));
+        assertEquals(0L, jdbc.queryForObject(
+            "select count(*) from outbox_events where aggregate_id = ? and event_type = 'BOOKING_RESCHEDULED'", Long.class,
+            bookingId));
+    }
+
+    @Test
     void concurrentRequestsCannotDoubleBookSingleCapacityResource() throws Exception {
         Fixture fixture = fixture(1);
         CountDownLatch ready = new CountDownLatch(2);
