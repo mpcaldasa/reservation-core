@@ -102,6 +102,9 @@ jobs:
       - name: Validate AWS infrastructure
         run: terraform -chdir=infra/aws validate -no-color
 
+      - name: Test security infrastructure plans without AWS access
+        run: terraform -chdir=infra/aws test -no-color
+
   container:
     name: Container image build
     runs-on: ubuntu-24.04

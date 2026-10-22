@@ -28,7 +28,22 @@ variable "image_tag" {
 
 variable "db_instance_class" {
   type    = string
-  default = "db.t4g.micro"
+  default = "db.t4g.medium"
+}
+
+variable "identity_delivery_encryption_secret_arn" {
+  type        = string
+  default     = ""
+  description = "Separate Secrets Manager secret containing a Base64-encoded random 32-byte identity-delivery encryption key."
+}
+
+variable "max_task_count" {
+  type    = number
+  default = 10
+  validation {
+    condition     = var.max_task_count >= 2 && var.max_task_count <= 50 && floor(var.max_task_count) == var.max_task_count
+    error_message = "Maximum task count must be an integer between 2 and 50; size database connections accordingly."
+  }
 }
 
 variable "desired_count" {

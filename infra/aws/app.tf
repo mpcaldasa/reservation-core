@@ -38,6 +38,7 @@ data "aws_iam_policy_document" "secrets" {
       var.jwt_secret_arn,
       aws_db_instance.main.master_user_secret[0].secret_arn
       ], var.smtp_enabled && var.smtp_password_secret_arn != "" ? [var.smtp_password_secret_arn] : [],
+      var.smtp_enabled ? [var.identity_delivery_encryption_secret_arn] : [],
       var.observability_backend == "datadog" && var.datadog_api_key_secret_arn != "" ? [var.datadog_api_key_secret_arn] : [],
     var.platform_admin_bootstrap_enabled ? [var.platform_admin_bootstrap_password_secret_arn] : [])
   }
@@ -99,6 +100,10 @@ resource "aws_ecs_task_definition" "app" {
     precondition {
       condition     = !var.smtp_enabled || (trimspace(var.smtp_host) != "" && trimspace(var.smtp_from) != "")
       error_message = "smtp_host and smtp_from are required when smtp_enabled is true."
+    }
+    precondition {
+      condition     = !var.smtp_enabled || trimspace(var.identity_delivery_encryption_secret_arn) != ""
+      error_message = "Email delivery requires a separate identity delivery encryption secret ARN."
     }
     precondition {
       condition     = !var.smtp_enabled || trimspace(var.invitation_acceptance_url) != ""
@@ -172,6 +177,8 @@ resource "aws_ecs_task_definition" "app" {
       { name = "DATADOG_API_KEY", valueFrom = var.datadog_api_key_secret_arn }
       ] : [], var.smtp_enabled && var.smtp_password_secret_arn != "" ? [
       { name = "SPRING_MAIL_PASSWORD", valueFrom = var.smtp_password_secret_arn }
+      ] : [], var.smtp_enabled ? [
+      { name = "APP_IDENTITY_DELIVERY_ENCRYPTION_KEY", valueFrom = var.identity_delivery_encryption_secret_arn }
       ] : [], var.platform_admin_bootstrap_enabled ? [
       { name = "APP_BOOTSTRAP_PLATFORM_ADMIN_PASSWORD", valueFrom = var.platform_admin_bootstrap_password_secret_arn }
     ] : [])
@@ -230,11 +237,14 @@ resource "aws_lb_target_group" "app" {
 }
 
 resource "aws_lb_listener" "https" {
-  load_balancer_arn = aws_lb.app.arn
-  port              = 443
-  protocol          = "HTTPS"
-  ssl_policy        = "ELBSecurityPolicy-TLS13-1-2-2021-06"
-  certificate_arn   = var.certificate_arn
+  routing_http_response_strict_transport_security_header_value = "max-age=31536000; includeSubDomains"
+  routing_http_response_x_content_type_options_header_value    = "nosniff"
+  routing_http_response_x_frame_options_header_value           = "DENY"
+  load_balancer_arn                                            = aws_lb.app.arn
+  port                                                         = 443
+  protocol                                                     = "HTTPS"
+  ssl_policy                                                   = "ELBSecurityPolicy-TLS13-1-2-2021-06"
+  certificate_arn                                              = var.certificate_arn
   default_action {
     type             = "forward"
     target_group_arn = aws_lb_target_group.app.arn
@@ -259,7 +269,7 @@ resource "aws_ecs_service" "app" {
   name            = "${local.prefix}-reservation-core"
   cluster         = aws_ecs_cluster.main.id
   task_definition = aws_ecs_task_definition.app.arn
-  desired_count   = var.desired_count
+  desired_count   = var.desired_count == 0 ? 0 : max(var.desired_count, var.environment == "prod" ? 2 : 1)
   launch_type     = "FARGATE"
   network_configuration {
     subnets          = aws_subnet.private[*].id
