@@ -6,5 +6,5 @@ import java.time.Instant;
 import java.util.UUID;
 
 public record CreateBookingRequest(@NotNull UUID resourceId, @NotNull Instant startAt, @NotNull Instant endAt,
-                                   UUID customerUserId, String notes) {
+                                   UUID customerUserId, @jakarta.validation.constraints.Size(max = 2000) String notes) {
 }

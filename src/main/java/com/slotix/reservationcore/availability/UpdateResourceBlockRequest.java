@@ -8,7 +8,7 @@ import java.time.Instant;
 public record UpdateResourceBlockRequest(
     @NotNull Instant startAt,
     @NotNull Instant endAt,
-    @NotBlank String reason,
+    @NotBlank @jakarta.validation.constraints.Size(max = 2000) String reason,
     @NotNull ResourceBlockType blockType
 ) {
 }

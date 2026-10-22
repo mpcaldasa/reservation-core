@@ -47,7 +47,7 @@ public class BookingController {
     }
 
     @PostMapping("/bookings/{bookingId}/cancel")
-    public BookingResponse cancel(@PathVariable UUID bookingId, @RequestBody(required = false) CancelBookingRequest request) {
+    public BookingResponse cancel(@PathVariable UUID bookingId, @Valid @RequestBody(required = false) CancelBookingRequest request) {
         return service.cancel(companyId(), bookingId, request == null ? null : request.reason());
     }
 

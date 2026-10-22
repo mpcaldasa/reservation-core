@@ -10,10 +10,10 @@ public record LoginRequest(
     UUID companyId,
 
     @NotBlank(message = "email is required")
-    String email,
+    @jakarta.validation.constraints.Size(max = 320) String email,
 
     @NotBlank(message = "password is required")
-    String password
+    @jakarta.validation.constraints.Size(max = 72) String password
 ) {
     @Override
     public String toString() {
