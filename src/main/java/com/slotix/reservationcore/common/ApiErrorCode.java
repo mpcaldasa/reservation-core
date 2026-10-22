@@ -2,6 +2,7 @@ package com.slotix.reservationcore.common;
 
 public enum ApiErrorCode {
     INVALID_REQUEST,
+    RATE_LIMIT_EXCEEDED,
     VALIDATION_FAILED,
     METHOD_NOT_ALLOWED,
     UNSUPPORTED_MEDIA_TYPE,

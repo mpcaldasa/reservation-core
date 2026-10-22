@@ -46,6 +46,9 @@ class CompanyInvitationApiIntegrationTest extends IdentityIntegrationTestSupport
             .andExpect(jsonPath("$.status").value("PENDING"))
             .andReturn();
         org.junit.jupiter.api.Assertions.assertFalse(created.getResponse().getContentAsString().contains("token"));
+        String encrypted = jdbc.queryForObject("select token from identity_email_deliveries limit 1", String.class);
+        org.junit.jupiter.api.Assertions.assertTrue(encrypted.startsWith("v1:"));
+        org.junit.jupiter.api.Assertions.assertFalse(encrypted.matches("[A-Za-z0-9_-]{43}"));
         mvc.perform(MockMvcRequestBuilders.post(invitationPath)
                 .header("Authorization", fixture.adminToken()).contentType(org.springframework.http.MediaType.APPLICATION_JSON)
                 .content(json.writeValueAsString(Map.of("email", "invitee@example.test", "roles", List.of("CUSTOMER")))))

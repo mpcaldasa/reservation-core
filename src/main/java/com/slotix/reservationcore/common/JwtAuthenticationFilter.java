@@ -21,10 +21,13 @@ import java.util.UUID;
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private final JwtService jwt;
     private final IdentityAuthenticationService identities;
+    private final com.slotix.reservationcore.identity.AccessTokenRevocations revocations;
 
-    public JwtAuthenticationFilter(JwtService jwt, IdentityAuthenticationService identities) {
+    public JwtAuthenticationFilter(JwtService jwt, IdentityAuthenticationService identities,
+                                    com.slotix.reservationcore.identity.AccessTokenRevocations revocations) {
         this.jwt = jwt;
         this.identities = identities;
+        this.revocations = revocations;
     }
 
     @Override
@@ -49,7 +52,7 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
     private AuthenticatedPrincipal parsePrincipal(String token) {
         try {
             Claims claims = jwt.parseAndValidate(token);
-            if (claims.getSubject() == null) {
+            if (claims.getSubject() == null || claims.getExpiration() == null || revocations.isRevoked(claims.getId())) {
                 return null;
             }
             String companyId = claims.get("companyId", String.class);

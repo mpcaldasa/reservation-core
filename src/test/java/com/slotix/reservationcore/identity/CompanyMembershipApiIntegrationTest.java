@@ -21,6 +21,17 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 class CompanyMembershipApiIntegrationTest extends IdentityIntegrationTestSupport {
     @Test
+    void logoutRevokesTheCapturedTokenButKeepsOtherSessionsActive() throws Exception {
+        Fixture fixture = fixture();
+        String otherSession = login(fixture.admin().getEmail(), fixture.company().getId());
+        mvc.perform(post("/api/logout").header("Authorization", fixture.adminToken()))
+            .andExpect(status().isNoContent());
+        mvc.perform(get(path(fixture)).header("Authorization", fixture.adminToken()))
+            .andExpect(status().isUnauthorized());
+        mvc.perform(get(path(fixture)).header("Authorization", otherSession)).andExpect(status().isOk());
+    }
+
+    @Test
     void existingUsersCanJoinAnotherCompanyWithoutChangingTheirIdentity() throws Exception {
         Fixture first = fixture();
         Fixture second = fixture();

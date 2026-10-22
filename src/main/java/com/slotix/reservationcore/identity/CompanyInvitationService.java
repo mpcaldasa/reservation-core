@@ -36,12 +36,14 @@ public class CompanyInvitationService {
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final boolean emailEnabled;
+    private final IdentityTokenCipher cipher;
 
     public CompanyInvitationService(CompanyRepository companies, CompanyInvitationRepository invitations,
                                     UserRepository users, CompanyMembershipRepository memberships,
                                     UserProvisioningService provisioning, TenantAccessService access,
                                     MembershipAuditService membershipAudit, AuditService audit, JdbcTemplate jdbc,
-                                    Clock clock, @Value("${app.notification.email.enabled:false}") boolean emailEnabled) {
+                                    Clock clock, @Value("${app.notification.email.enabled:false}") boolean emailEnabled,
+                                    IdentityTokenCipher cipher) {
         this.companies = companies;
         this.invitations = invitations;
         this.users = users;
@@ -53,6 +55,7 @@ public class CompanyInvitationService {
         this.jdbc = jdbc;
         this.clock = clock;
         this.emailEnabled = emailEnabled;
+        this.cipher = cipher;
     }
 
     @PreAuthorize("hasRole('COMPANY_ADMIN')")
@@ -83,7 +86,7 @@ public class CompanyInvitationService {
             + "(SELECT id FROM company_invitations WHERE company_id = ? AND invited_email = ? "
             + "AND status = 'EXPIRED') AND token IS NOT NULL", companyId, email);
         jdbc.update("INSERT INTO identity_email_deliveries(aggregate_type, aggregate_id, recipient, token) "
-            + "VALUES ('COMPANY_INVITATION', ?, ?, ?)", invitation.getId(), email, token);
+            + "VALUES ('COMPANY_INVITATION', ?, ?, ?)", invitation.getId(), email, cipher.encrypt(token));
         audit.record(companyId, access.currentUserId(), "COMPANY_MEMBER_INVITED", "COMPANY_INVITATION",
             invitation.getId(), null, "{\"email\":\"%s\",\"status\":\"PENDING\"}".formatted(email));
         return CompanyInvitationResponse.from(invitation);

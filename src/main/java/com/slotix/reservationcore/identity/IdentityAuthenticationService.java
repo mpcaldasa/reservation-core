@@ -24,16 +24,18 @@ public class IdentityAuthenticationService {
     private final CompanyRepository companies;
     private final PasswordEncoder passwords;
     private final JwtService jwt;
+    private final IdentityRateLimiter rateLimiter;
 
     public IdentityAuthenticationService(UserRepository users, CompanyMembershipRepository memberships,
                                           PlatformUserRoleRepository platformRoles, CompanyRepository companies,
-                                          PasswordEncoder passwords, JwtService jwt) {
+                                          PasswordEncoder passwords, JwtService jwt, IdentityRateLimiter rateLimiter) {
         this.users = users;
         this.memberships = memberships;
         this.platformRoles = platformRoles;
         this.companies = companies;
         this.passwords = passwords;
         this.jwt = jwt;
+        this.rateLimiter = rateLimiter;
     }
 
     public LoginResponse login(LoginRequest request) {
@@ -81,6 +83,7 @@ public class IdentityAuthenticationService {
     }
 
     private User authenticate(String email, String password) {
+        rateLimiter.acquire("login", email, 20, 300);
         User user = users.findByEmailAndDeletedAtIsNull(email.trim().toLowerCase(Locale.ROOT))
             .filter(User::isActive).orElseThrow(InvalidCredentialsException::new);
         if (password.getBytes(StandardCharsets.UTF_8).length > 72 || !passwords.matches(password, user.getPasswordHash())) {

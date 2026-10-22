@@ -23,6 +23,13 @@ public class JwtService {
         @Value("${app.jwt.secret}") String secret,
         @Value("${app.jwt.expiration-minutes}") long expirationMinutes
     ) {
+        if (secret == null || secret.getBytes(StandardCharsets.UTF_8).length < 32
+            || secret.startsWith("slotix-dev-secret") || secret.chars().distinct().count() < 16) {
+            throw new IllegalArgumentException("A random JWT signing secret of at least 32 bytes is required");
+        }
+        if (expirationMinutes < 1 || expirationMinutes > 60) {
+            throw new IllegalArgumentException("JWT expiration must be between 1 and 60 minutes");
+        }
         this.key = Keys.hmacShaKeyFor(secret.getBytes(StandardCharsets.UTF_8));
         this.expirationMinutes = expirationMinutes;
     }
@@ -35,6 +42,9 @@ public class JwtService {
         Instant now = Instant.now();
 
         return Jwts.builder()
+            .id(UUID.randomUUID().toString())
+            .issuer("slotix")
+            .audience().add("slotix-api").and()
             .subject(userId.toString())
             .claim("companyId", companyId == null ? null : companyId.toString())
             .claim("roles", roles)
@@ -48,6 +58,8 @@ public class JwtService {
     public Claims parseAndValidate(String token) {
         return Jwts.parser()
             .verifyWith(key)
+            .requireIssuer("slotix")
+            .requireAudience("slotix-api")
             .build()
             .parseSignedClaims(token)
             .getPayload();

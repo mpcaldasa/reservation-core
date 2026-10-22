@@ -18,6 +18,8 @@ public abstract class PostgresIntegrationTestSupport {
     @DynamicPropertySource
     static void configureDataSource(DynamicPropertyRegistry registry) {
         registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("app.jwt.secret", () -> "Test-only-3ab9c028-f4d1-47e6-812a-9dc62f57e803");
+        registry.add("app.identity.delivery-encryption-key", () -> "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=");
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("spring.jpa.show-sql", () -> "false");

@@ -40,7 +40,7 @@ public abstract class IdentityIntegrationTestSupport extends PostgresIntegration
 
     @BeforeEach
     void cleanDatabase() {
-        for (String table : List.of("identity_email_deliveries", "company_invitations", "password_reset_tokens",
+        for (String table : List.of("identity_rate_limits", "revoked_access_tokens", "identity_email_deliveries", "company_invitations", "password_reset_tokens",
             "notification_deliveries", "outbox_events", "audit_logs", "idempotency_keys",
             "booking_resources", "bookings", "resource_blocks", "availability_rules", "resource_policies",
             "booking_policies", "resources", "membership_roles", "company_memberships", "platform_user_roles", "users", "companies")) {

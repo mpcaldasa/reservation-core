@@ -33,13 +33,15 @@ public class IdentityEmailWorker {
     private final String passwordResetUrl;
     private final SlotixMetrics metrics;
     private final ScheduledJobObserver jobs;
+    private final IdentityTokenCipher cipher;
 
     public IdentityEmailWorker(IdentityEmailDeliveryStore deliveries, EmailSender sender,
                                NotificationRetryPolicy retries, NotificationEmailProperties properties,
                                @Value("${app.identity.invitation.acceptance-url:http://localhost:3000/accept-invitation}")
                                String invitationUrl,
                                @Value("${app.identity.password-reset.acceptance-url:http://localhost:3000/reset-password}")
-                               String passwordResetUrl, SlotixMetrics metrics, ScheduledJobObserver jobs) {
+                               String passwordResetUrl, SlotixMetrics metrics, ScheduledJobObserver jobs,
+                               IdentityTokenCipher cipher) {
         this.deliveries = deliveries;
         this.sender = sender;
         this.retries = retries;
@@ -48,6 +50,7 @@ public class IdentityEmailWorker {
         this.passwordResetUrl = passwordResetUrl;
         this.metrics = metrics;
         this.jobs = jobs;
+        this.cipher = cipher;
     }
 
     @Scheduled(fixedDelayString = "${app.notification.email.delay-ms:5000}",
@@ -97,12 +100,12 @@ public class IdentityEmailWorker {
         String subject;
         String body;
         if ("COMPANY_INVITATION".equals(delivery.purpose())) {
-            link = withToken(invitationUrl, delivery.token());
+            link = withToken(invitationUrl, cipher.decrypt(delivery.token()));
             subject = "You are invited to Slotix";
             body = "You have been invited to join %s on Slotix.\n\nAccept the invitation within 7 days:\n%s"
                 .formatted(delivery.companyName(), link);
         } else if ("PASSWORD_RESET".equals(delivery.purpose())) {
-            link = withToken(passwordResetUrl, delivery.token());
+            link = withToken(passwordResetUrl, cipher.decrypt(delivery.token()));
             subject = "Reset your Slotix password";
             body = "A password reset was requested for your Slotix account.\n\nUse this link within 30 minutes:\n%s"
                 .formatted(link);

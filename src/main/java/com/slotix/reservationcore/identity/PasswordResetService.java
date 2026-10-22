@@ -30,10 +30,13 @@ public class PasswordResetService {
     private final JdbcTemplate jdbc;
     private final Clock clock;
     private final boolean emailEnabled;
+    private final IdentityTokenCipher cipher;
+    private final IdentityRateLimiter rateLimiter;
 
     public PasswordResetService(UserRepository users, PasswordResetTokenRepository tokens,
                                 PasswordEncoder passwords, AuditService audit, JdbcTemplate jdbc, Clock clock,
-                                @Value("${app.notification.email.enabled:false}") boolean emailEnabled) {
+                                @Value("${app.notification.email.enabled:false}") boolean emailEnabled,
+                                IdentityTokenCipher cipher, IdentityRateLimiter rateLimiter) {
         this.users = users;
         this.tokens = tokens;
         this.passwords = passwords;
@@ -41,9 +44,12 @@ public class PasswordResetService {
         this.jdbc = jdbc;
         this.clock = clock;
         this.emailEnabled = emailEnabled;
+        this.cipher = cipher;
+        this.rateLimiter = rateLimiter;
     }
 
     public PasswordResetResponse request(PasswordResetRequest request) {
+        rateLimiter.acquire("reset", request.email(), 5, 3600);
         if (!emailEnabled) return PasswordResetResponse.requested();
         String email = request.email().trim().toLowerCase(Locale.ROOT);
         users.lockByEmailAndDeletedAtIsNull(email).filter(User::isActive).ifPresent(user -> {
@@ -101,7 +107,7 @@ public class PasswordResetService {
         PasswordResetToken resetToken = tokens.saveAndFlush(PasswordResetToken.create(user.getId(),
             IdentityToken.hash(token), now.plus(TOKEN_TTL), now));
         jdbc.update("INSERT INTO identity_email_deliveries(aggregate_type, aggregate_id, recipient, token) "
-            + "VALUES ('PASSWORD_RESET', ?, ?, ?)", resetToken.getId(), user.getEmail(), token);
+            + "VALUES ('PASSWORD_RESET', ?, ?, ?)", resetToken.getId(), user.getEmail(), cipher.encrypt(token));
     }
 
     private Instant now() { return clock.instant().truncatedTo(ChronoUnit.MICROS); }
