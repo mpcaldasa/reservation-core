@@ -34,6 +34,7 @@ docker compose up -d postgres
 Start the backend in one terminal:
 
 ```sh
+export APP_JWT_SECRET="$(openssl rand -base64 48)"
 ./mvnw spring-boot:run
 ```
 
@@ -106,7 +107,7 @@ npm run verify           # typecheck, lint, formatting, coverage, build, and E2E
 
 Install the Playwright browser once with `npx playwright install chromium` if it is not already available. `npm run e2e:real` exercises a dedicated test company against a real backend; follow the frontend README and never point it at production data. The frontend README also documents contract checks, dependency audits, configuration, and the test-account setup.
 
-The local `application.properties` contains development credentials. Supply `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, and `APP_JWT_SECRET` in deployed environments.
+The local `application.properties` contains development database credentials. Supply `SPRING_DATASOURCE_URL`, `SPRING_DATASOURCE_USERNAME`, `SPRING_DATASOURCE_PASSWORD`, and a unique random `APP_JWT_SECRET` in deployed environments. JWT signing configuration is mandatory and has no fallback key. See [security hardening](specs/security-hardening.md) for revocation, encrypted identity emails, rate limits, migration impact, and production rollout requirements.
 
 ### Quality assessment
 
@@ -180,6 +181,10 @@ For a first deployment:
 Terraform provisions infrastructure only. It does not create the remote state bucket, ACM certificate, DNS record, JWT secret, or send email. Each environment needs its own state key and variables. Review AWS costs before applying, especially NAT Gateway, load balancer, and RDS.
 
 To enable email on ECS, supply `smtp_enabled=true`, `smtp_host`, `smtp_port`, `smtp_from`, and the HTTPS `invitation_acceptance_url` and `password_reset_acceptance_url` for the frontend. Optionally set `smtp_username` and `smtp_password_secret_arn`; the password secret must contain a plain string. The sender address must be authorized by the SMTP provider. SMTP stays disabled when `smtp_enabled=false`.
+
+Email also requires `identity_delivery_encryption_secret_arn`, a separate Secrets Manager secret containing a Base64-encoded random 32-byte encryption key. V23 revokes undelivered legacy plaintext identity links; reissue those links after rollout. Stop old workers before migrating and drain encrypted deliveries before key rotation. Local email requires `APP_IDENTITY_DELIVERY_ENCRYPTION_KEY` as well.
+
+The public ALB now uses a regional WAF with managed rules, IP-based limits, and a blocked-request alarm. Production starts at least two private tasks and scales toward 60% CPU, up to `max_task_count` (ten by default). Size RDS and its connection budget for this maximum; the default instance is `db.t4g.medium`. Apply no infrastructure until staging has validated workload-specific limits and costs. See the [security hardening specification](specs/security-hardening.md).
 
 For the first platform administrator on ECS, supply `platform_admin_bootstrap_enabled=true`, `platform_admin_bootstrap_email`, and `platform_admin_bootstrap_password_secret_arn`. `platform_admin_bootstrap_full_name` is optional. The password secret contains a plain string and is injected directly into the task. Disable bootstrap after the first initialization; the optional secret injection and its execution-role access are then removed from the task configuration.
 

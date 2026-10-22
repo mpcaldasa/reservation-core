@@ -118,6 +118,18 @@ jobs:
       - name: Build application image
         run: docker build --tag slotix-reservation-core:ci .
 
+      - name: Reject high and critical image or Java dependency vulnerabilities
+        uses: aquasecurity/trivy-action@8f28faec26515256b6d22074d1d2a8986f4cbd87
+        with:
+          version: v0.76.1
+          image-ref: slotix-reservation-core:ci
+          scanners: vuln
+          severity: HIGH,CRITICAL
+          ignore-unfixed: false
+          exit-code: '1'
+          format: table
+          timeout: 10m
+
   merge-gate:
     name: Merge gate
     if: always()
