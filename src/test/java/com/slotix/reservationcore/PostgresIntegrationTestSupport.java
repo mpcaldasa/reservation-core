@@ -1,0 +1,29 @@
+package com.slotix.reservationcore;
+
+import org.springframework.test.context.DynamicPropertyRegistry;
+import org.springframework.test.context.DynamicPropertySource;
+import org.testcontainers.containers.PostgreSQLContainer;
+
+public abstract class PostgresIntegrationTestSupport {
+
+    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>("postgres:16-alpine")
+        .withDatabaseName("slotix_test")
+        .withUsername("slotix")
+        .withPassword("slotix_test_password");
+
+    static {
+        POSTGRES.start();
+    }
+
+    @DynamicPropertySource
+    static void configureDataSource(DynamicPropertyRegistry registry) {
+        registry.add("spring.datasource.url", POSTGRES::getJdbcUrl);
+        registry.add("app.jwt.secret", () -> "Test-only-3ab9c028-f4d1-47e6-812a-9dc62f57e803");
+        registry.add("app.identity.delivery-encryption-key", () -> "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=");
+        registry.add("spring.datasource.username", POSTGRES::getUsername);
+        registry.add("spring.datasource.password", POSTGRES::getPassword);
+        registry.add("spring.jpa.show-sql", () -> "false");
+        registry.add("app.notification.queue-initial-delay-ms", () -> "3600000");
+        registry.add("app.notification.email.initial-delay-ms", () -> "3600000");
+    }
+}
