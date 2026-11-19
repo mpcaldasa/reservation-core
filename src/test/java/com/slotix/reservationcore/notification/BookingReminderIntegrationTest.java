@@ -31,6 +31,10 @@ class BookingReminderIntegrationTest extends IdentityIntegrationTestSupport {
         String path = "/api/v1/companies/" + fixture.company().getId() + "/reminders";
         mvc.perform(get(path).header("Authorization", fixture.adminToken())).andExpect(status().isOk())
             .andExpect(jsonPath("$.enabled").value(false));
+        mvc.perform(get(path+"/history").header("Authorization", fixture.adminToken())).andExpect(status().isOk())
+            .andExpect(jsonPath("$.totalElements").value(0));
+        mvc.perform(get(path+"/history").param("size","51").header("Authorization", fixture.adminToken())).andExpect(status().isBadRequest());
+        mvc.perform(get(path+"/history").header("Authorization", fixture.customerToken())).andExpect(status().isForbidden());
         mvc.perform(put(path).header("Authorization", fixture.customerToken()).contentType(MediaType.APPLICATION_JSON)
             .content("{\"enabled\":true,\"minutesBefore\":60}")).andExpect(status().isForbidden());
         mvc.perform(put(path).header("Authorization", fixture.adminToken()).contentType(MediaType.APPLICATION_JSON)
@@ -64,6 +68,10 @@ class BookingReminderIntegrationTest extends IdentityIntegrationTestSupport {
         jdbc.update("UPDATE bookings SET status='CANCELLED' WHERE id=?", booking.getId());
         assertTrue(deliveries.claimNext(5, Duration.ofMinutes(2)).isEmpty());
         assertEquals("SKIPPED", jdbc.queryForObject("SELECT status FROM notification_deliveries WHERE id=?", String.class, delivery));
+        mvc.perform(get("/api/v1/companies/"+fixture.company().getId()+"/reminders/history").header("Authorization",fixture.adminToken()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.totalElements").value(1))
+            .andExpect(jsonPath("$.items[0].customerName").value("customer"))
+            .andExpect(jsonPath("$.items[0].status").value("SKIPPED"));
     }
 
     @Test
