@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ruleset name="Slotix quality assessment"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0 https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+    <description>Maintainability, correctness, and performance reporting for production Java sources.</description>
+    <rule ref="category/java/errorprone.xml"/>
+    <rule ref="category/java/bestpractices.xml"/>
+    <rule ref="category/java/design.xml">
+        <!-- This rule requires an explicit allowed-package mapping that this project does not define. -->
+        <exclude name="LoosePackageCoupling"/>
+    </rule>
+    <rule ref="category/java/performance.xml"/>
+</ruleset>

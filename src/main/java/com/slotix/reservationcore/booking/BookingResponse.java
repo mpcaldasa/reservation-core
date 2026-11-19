@@ -1,0 +1,23 @@
+package com.slotix.reservationcore.booking;
+
+import java.time.Instant;
+import java.util.UUID;
+
+public record BookingResponse(UUID id, Long bookingNumber, UUID companyId, UUID resourceId, UUID customerUserId,
+                              Instant startAt, Instant endAt, BookingStatus status, String timezone,
+                              String notes, Instant cancelledAt, String cancellationReason,
+                              Instant checkedInAt, UUID checkedInBy, Instant completedAt, UUID completedBy,
+                              Instant noShowAt, UUID noShowBy, String customerName, String resourceName) {
+    public static BookingResponse from(Booking booking) {
+        return from(booking, null, null);
+    }
+
+    public static BookingResponse from(Booking booking, String customerName, String resourceName) {
+        return new BookingResponse(booking.getId(), booking.getBookingNumber(), booking.getCompanyId(),
+            booking.getResourceId(), booking.getCustomerUserId(), booking.getStartAt(), booking.getEndAt(),
+            booking.getStatus(), booking.getTimezone(), booking.getNotes(), booking.getCancelledAt(),
+            booking.getCancellationReason(), booking.getCheckedInAt(), booking.getCheckedInBy(),
+            booking.getCompletedAt(), booking.getCompletedBy(), booking.getNoShowAt(), booking.getNoShowBy(),
+            customerName, resourceName);
+    }
+}
