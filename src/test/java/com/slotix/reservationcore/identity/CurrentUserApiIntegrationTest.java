@@ -26,4 +26,20 @@ class CurrentUserApiIntegrationTest extends IdentityIntegrationTestSupport {
         mvc.perform(get("/api/me").header("Authorization","Bearer "+token)).andExpect(status().isOk())
             .andExpect(jsonPath("$.companyId").value(other.company().getId().toString()));
     }
+    @Test
+    void refreshedCredentialsRemainValidWhenSelectingAnotherWorkspace() throws Exception {
+        var first=fixture();var other=fixture();
+        memberships.save(CompanyMembership.create(other.company().getId(),first.admin().getId(),Set.of(MembershipRole.CUSTOMER)));
+        first.admin().changePasswordHash(passwords.encode(PASSWORD),java.time.Instant.now());
+        users.saveAndFlush(first.admin());
+        mvc.perform(get("/api/me").header("Authorization",first.adminToken())).andExpect(status().isUnauthorized());
+        String fresh=login(first.admin().getEmail(),first.company().getId());
+        String body=mvc.perform(post("/api/me/company").header("Authorization",fresh).contentType(MediaType.APPLICATION_JSON)
+                .content("{\"companyId\":\""+other.company().getId()+"\"}"))
+            .andExpect(status().isOk()).andReturn().getResponse().getContentAsString();
+        String token=json.readTree(body).get("token").asText();
+        org.junit.jupiter.api.Assertions.assertEquals(1,jwt.parseAndValidate(token).get("credentialVersion",Integer.class));
+        mvc.perform(get("/api/me").header("Authorization","Bearer "+token)).andExpect(status().isOk());
+    }
+
 }

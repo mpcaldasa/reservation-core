@@ -78,7 +78,7 @@ public class IdentityAuthenticationService {
             }
             roles.addAll(membership.get().getRoles().stream().map(Enum::name).toList());
         }
-        return Optional.of(new AuthenticatedIdentity(new AuthenticatedPrincipal(user.getId(), companyId),
+        return Optional.of(new AuthenticatedIdentity(new AuthenticatedPrincipal(user.getId(), companyId, user.getCredentialVersion()),
             roles.stream().distinct().sorted().toList()));
     }
 
