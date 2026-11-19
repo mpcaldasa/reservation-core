@@ -13,6 +13,7 @@ public class BookingEmailTemplate {
 
     public EmailMessage render(NotificationDelivery delivery) {
         String action = switch (delivery.eventType()) {
+            case "BOOKING_REMINDER" -> "reminder";
             case "BOOKING_CREATED" -> "created";
             case "BOOKING_CONFIRMED" -> "confirmed";
             case "BOOKING_REJECTED" -> "rejected";
@@ -27,10 +28,10 @@ public class BookingEmailTemplate {
         ZoneId zone = ZoneId.of(delivery.timezone());
         String subject = "%s | Booking #%d %s".formatted(delivery.companyName(), delivery.bookingNumber(), action);
         String body = """
-            Your booking #%d at %s was %s.
+            Your booking #%d at %s %s.
             Start: %s
             End: %s
-            """.formatted(delivery.bookingNumber(), delivery.companyName(), action,
+            """.formatted(delivery.bookingNumber(), delivery.companyName(), delivery.eventType().equals("BOOKING_REMINDER") ? "starts soon" : "was " + action,
             TIME_FORMAT.format(delivery.startAt().atZone(zone)), TIME_FORMAT.format(delivery.endAt().atZone(zone)));
         return new EmailMessage(delivery.recipient(), subject, body);
     }

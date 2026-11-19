@@ -35,6 +35,23 @@ public class JdbcNotificationDeliveryStore implements NotificationDeliveryStore 
             FROM exhausted WHERE d.id = exhausted.id
             """, maxAttempts);
 
+        jdbc.update("""
+            UPDATE notification_deliveries d SET status='SKIPPED',claim_token=NULL,claim_until=NULL,
+                error_message='REMINDER_OBSOLETE'
+            FROM bookings b, outbox_events o
+            WHERE d.booking_id=b.id AND d.outbox_event_id=o.id AND d.template='BOOKING_REMINDER'
+                AND (d.status IN ('PENDING','FAILED') OR (d.status='SENDING' AND d.claim_until<=now()))
+                AND (b.status<>'CONFIRMED' OR b.start_at<=now()
+                    OR (o.payload->>'startAt')::timestamptz<>b.start_at
+                    OR NOT EXISTS (SELECT 1 FROM company_reminder_settings s
+                        WHERE s.company_id=b.company_id AND s.enabled)
+                    OR NOT EXISTS (SELECT 1 FROM companies c WHERE c.id=b.company_id
+                        AND c.status='ACTIVE' AND c.deleted_at IS NULL)
+                    OR NOT EXISTS (SELECT 1 FROM users u JOIN company_memberships m ON m.user_id=u.id
+                        WHERE u.id=b.customer_user_id AND u.status='ACTIVE' AND u.deleted_at IS NULL
+                        AND m.company_id=b.company_id AND m.status='ACTIVE' AND m.deleted_at IS NULL))
+            """);
+
         return jdbc.query("""
             WITH candidate AS (
                 SELECT id FROM notification_deliveries

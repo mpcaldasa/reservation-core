@@ -20,7 +20,7 @@ import java.util.UUID;
 @Transactional
 @PreAuthorize("hasRole('PLATFORM_ADMIN')")
 public class NotificationOperationsService {
-    private static final List<String> STATUSES = List.of("PENDING", "SENDING", "SENT", "FAILED");
+    private static final List<String> STATUSES = List.of("PENDING", "SENDING", "SENT", "FAILED", "SKIPPED");
     private final JdbcTemplate jdbc;
     private final AuditService audit;
     private final TenantAccessService access;
@@ -37,7 +37,7 @@ public class NotificationOperationsService {
         String normalized = status == null ? "FAILED" : status.trim().toUpperCase(Locale.ROOT);
         if (!STATUSES.contains(normalized)) {
             throw new ApiException(HttpStatus.BAD_REQUEST, ApiErrorCode.NOTIFICATION_STATUS_INVALID,
-                "Status must be one of PENDING, SENDING, SENT, or FAILED");
+                "Status must be one of PENDING, SENDING, SENT, FAILED, or SKIPPED");
         }
         long total = jdbc.queryForObject("SELECT count(*) FROM notification_deliveries WHERE status = ?", Long.class,
             normalized);

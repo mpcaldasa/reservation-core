@@ -23,6 +23,7 @@ public abstract class PostgresIntegrationTestSupport {
         registry.add("spring.datasource.username", POSTGRES::getUsername);
         registry.add("spring.datasource.password", POSTGRES::getPassword);
         registry.add("spring.jpa.show-sql", () -> "false");
+        registry.add("app.notification.reminder-initial-delay-ms", () -> "3600000");
         registry.add("app.notification.queue-initial-delay-ms", () -> "3600000");
         registry.add("app.notification.email.initial-delay-ms", () -> "3600000");
     }

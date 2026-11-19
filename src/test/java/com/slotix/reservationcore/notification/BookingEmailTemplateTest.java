@@ -22,6 +22,13 @@ class BookingEmailTemplateTest {
     }
 
     @Test
+    void reminderUsesUpcomingBookingLanguage() {
+        EmailMessage message = template.render(delivery("BOOKING_REMINDER"));
+        assertEquals("North Court | Booking #42 reminder", message.subject());
+        org.junit.jupiter.api.Assertions.assertTrue(message.body().startsWith("Your booking #42 at North Court starts soon."));
+    }
+
+    @Test
     void rejectsUnsupportedEvents() {
         assertThrows(IllegalArgumentException.class, () -> template.render(delivery("UNKNOWN")));
     }
