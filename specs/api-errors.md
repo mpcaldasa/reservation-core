@@ -128,3 +128,11 @@ The envelope is applied by the global API exception handler and the Spring Secur
 | Code | HTTP status | Meaning |
 | --- | --- | --- |
 | `CUSTOMER_NOT_FOUND` | 404 | The requested customer has no current membership in this company |
+
+## Calendar integration errors
+
+| Code | HTTP status | Meaning |
+| --- | --- | --- |
+| `CALENDAR_NOT_CONFIGURED` | 503 | Google OAuth or encryption configuration is missing |
+| `CALENDAR_AUTHORIZATION_FAILED` | 400/409 | OAuth state, scope, offline authorization or connection is missing or invalid |
+| `CALENDAR_PROVIDER_UNAVAILABLE` | 502 | Google could not complete the provider request |
