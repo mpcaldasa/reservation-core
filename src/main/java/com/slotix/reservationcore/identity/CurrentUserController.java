@@ -29,7 +29,9 @@ public class CurrentUserController {
     }
 
     public record Workspace(UUID companyId, String companyName, String timezone) {}
-    public record Profile(String fullName, String email, UUID companyId, List<Workspace> workspaces) {}
+    public record Profile(String fullName, String email, UUID companyId, List<Workspace> workspaces) {
+        public Profile { workspaces = List.copyOf(workspaces); }
+    }
     public record CompanySelection(@NotNull UUID companyId) {}
 
     @GetMapping

@@ -26,7 +26,7 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Component
-public class GoogleCalendarClient {
+public final class GoogleCalendarClient {
     public static final String SCOPE = "https://www.googleapis.com/auth/calendar.app.created";
     private final String clientId;
     private final String clientSecret;
@@ -126,5 +126,7 @@ public class GoogleCalendarClient {
     private static String form(Map<String,String> values) { return values.entrySet().stream().map(entry->encode(entry.getKey())+"="+encode(entry.getValue())).collect(Collectors.joining("&")); }
     private static String encode(String value) { return URLEncoder.encode(value,StandardCharsets.UTF_8).replace("+","%20"); }
     private static ApiException providerFailure() { return new ApiException(HttpStatus.BAD_GATEWAY,ApiErrorCode.CALENDAR_PROVIDER_UNAVAILABLE,"Google Calendar could not complete the request"); }
-    private static class MissingEvent extends RuntimeException {}
+    private static final class MissingEvent extends RuntimeException {
+        private static final long serialVersionUID = 1L;
+    }
 }

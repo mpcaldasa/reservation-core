@@ -52,7 +52,7 @@ public class CustomerDirectoryService {
             throw new ApiException(HttpStatus.BAD_REQUEST, ApiErrorCode.VALIDATION_FAILED, "Search must not exceed 120 characters");
         }
         String text = "%" + query.trim().replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
-        String filters = " AND (NOT ? OR (m.status='ACTIVE' AND u.status='ACTIVE'))"
+        final String filters = " AND (NOT ? OR (m.status='ACTIVE' AND u.status='ACTIVE'))"
             + " AND (u.full_name ILIKE ? OR u.email ILIKE ? OR coalesce(p.phone,'') ILIKE ?)";
         Long count = jdbc.queryForObject("SELECT count(*) " + FROM + filters, Long.class,
             companyId, activeOnly, text, text, text);
