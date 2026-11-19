@@ -38,6 +38,7 @@ import java.util.UUID;
 
 @Service
 public class BookingService {
+    private final BookingPresentation presentation;
     private final BookingRepository bookings;
     private final BookingResourceRepository occupied;
     private final IdempotencyKeyService idempotencyKeys;
@@ -59,8 +60,9 @@ public class BookingService {
                           ResourcePolicyRepository assignments,
                           BookingPolicyRepository policies, AvailabilityService availability, TenantAccessService access,
                           EntityManager entityManager, AuditService audit, NotificationOutboxService notifications,
-                          SlotixMetrics metrics, Clock clock) {
+                          SlotixMetrics metrics, Clock clock, BookingPresentation presentation) {
         this.bookings = bookings;
+        this.presentation = presentation;
         this.occupied = occupied;
         this.idempotencyKeys = idempotencyKeys;
         this.companies = companies;
@@ -111,7 +113,7 @@ public class BookingService {
                 throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.IDEMPOTENCY_KEY_REUSED,
                     "This idempotency key was already used with a different booking request");
             }
-            return BookingResponse.from(bookings.findByIdAndCompanyId(existing.get().getBookingId(), companyId)
+            return presentation.present(bookings.findByIdAndCompanyId(existing.get().getBookingId(), companyId)
                 .orElseThrow(() -> new ApiException(HttpStatus.CONFLICT, ApiErrorCode.IDEMPOTENT_BOOKING_NOT_FOUND,
                     "The booking associated with this idempotency key no longer exists")));
         }
@@ -146,7 +148,7 @@ public class BookingService {
         notifications.enqueueBookingEvent(companyId, booking.getId(), "BOOKING_CREATED");
         metrics.bookingCreated(booking.getStatus());
         entityManager.refresh(booking);
-        return BookingResponse.from(booking);
+        return presentation.present(booking);
     }
 
     @Transactional(readOnly = true)
@@ -156,7 +158,7 @@ public class BookingService {
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, ApiErrorCode.BOOKING_NOT_FOUND,
                 "The booking does not exist in this company"));
         requireViewPermission(booking);
-        return BookingResponse.from(booking);
+        return presentation.present(booking);
     }
 
     @Transactional(readOnly = true)
@@ -168,8 +170,7 @@ public class BookingService {
         }
         AuthenticatedPrincipal actor = principal();
         boolean staff = isStaff();
-        return bookings.inCalendar(companyId, from, to, staff ? null : actor.userId())
-            .stream().map(BookingResponse::from).toList();
+        return presentation.present(bookings.inCalendar(companyId, from, to, staff ? null : actor.userId()));
     }
 
     @Transactional
@@ -179,7 +180,7 @@ public class BookingService {
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, ApiErrorCode.BOOKING_NOT_FOUND,
                 "The booking does not exist in this company"));
         requireViewPermission(booking);
-        if (booking.getStatus() == BookingStatus.CANCELLED) return BookingResponse.from(booking);
+        if (booking.getStatus() == BookingStatus.CANCELLED) return presentation.present(booking);
         if (booking.getStatus() != BookingStatus.CONFIRMED && booking.getStatus() != BookingStatus.PENDING) {
             throw new ApiException(HttpStatus.UNPROCESSABLE_CONTENT, ApiErrorCode.BOOKING_STATE_INVALID,
                 "The booking cannot be cancelled from its current status");
@@ -214,7 +215,7 @@ public class BookingService {
         audit.record(companyId, principal().userId(), "BOOKING_CANCELLED", "BOOKING", bookingId,
             "{\"status\":\"" + previousStatus + "\"}", "{\"status\":\"CANCELLED\"}");
         notifications.enqueueBookingEvent(companyId, bookingId, "BOOKING_CANCELLED");
-        return BookingResponse.from(booking);
+        return presentation.present(booking);
     }
 
     @Transactional
@@ -241,7 +242,7 @@ public class BookingService {
         String after = "{\"status\":\"" + decision + "\"}";
         audit.record(companyId, principal().userId(), "BOOKING_" + decision, "BOOKING", bookingId, before, after);
         notifications.enqueueBookingEvent(companyId, bookingId, "BOOKING_" + decision);
-        return BookingResponse.from(booking);
+        return presentation.present(booking);
     }
 
     private void requireViewPermission(Booking booking) {

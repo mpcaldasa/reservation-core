@@ -1,6 +1,7 @@
 package com.slotix.reservationcore.common;
 
 public enum ApiErrorCode {
+    CUSTOMER_NOT_FOUND,
     INVALID_REQUEST,
     RATE_LIMIT_EXCEEDED,
     VALIDATION_FAILED,

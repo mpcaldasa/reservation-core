@@ -15,6 +15,8 @@ import org.springframework.data.jpa.repository.QueryHints;
 import jakarta.persistence.QueryHint;
 
 public interface BookingRepository extends JpaRepository<Booking, UUID> {
+    org.springframework.data.domain.Page<Booking> findByCompanyIdAndCustomerUserId(
+        UUID companyId, UUID customerUserId, Pageable pageable);
     Optional<Booking> findByIdAndCompanyId(UUID id, UUID companyId);
 
     @Lock(LockModeType.PESSIMISTIC_WRITE)

@@ -20,6 +20,7 @@ import java.util.UUID;
 @Transactional
 @PreAuthorize("hasAnyRole('COMPANY_ADMIN','BOOKING_MANAGER')")
 public class BookingLifecycleService {
+    private final BookingPresentation presentation;
     private final BookingRepository bookings;
     private final BookingResourceRepository allocations;
     private final TenantAccessService access;
@@ -30,8 +31,9 @@ public class BookingLifecycleService {
 
     public BookingLifecycleService(BookingRepository bookings, BookingResourceRepository allocations,
                                    TenantAccessService access, AuditService audit,
-                                   NotificationOutboxService notifications, Clock clock, SlotixMetrics metrics) {
+                                   NotificationOutboxService notifications, Clock clock, SlotixMetrics metrics, BookingPresentation presentation) {
         this.bookings = bookings;
+        this.presentation = presentation;
         this.allocations = allocations;
         this.access = access;
         this.audit = audit;
@@ -45,7 +47,7 @@ public class BookingLifecycleService {
         BookingStatus previous = booking.getStatus();
         UUID actor = access.currentUserId();
         if (!booking.checkIn(actor, currentTime())) {
-            return BookingResponse.from(booking);
+            return presentation.present(booking);
         }
         return persistTransition(booking, previous, actor);
     }
@@ -55,7 +57,7 @@ public class BookingLifecycleService {
         BookingStatus previous = booking.getStatus();
         UUID actor = access.currentUserId();
         if (!booking.complete(actor, currentTime())) {
-            return BookingResponse.from(booking);
+            return presentation.present(booking);
         }
         return persistTransition(booking, previous, actor);
     }
@@ -65,7 +67,7 @@ public class BookingLifecycleService {
         BookingStatus previous = booking.getStatus();
         UUID actor = access.currentUserId();
         if (!booking.markNoShow(actor, currentTime())) {
-            return BookingResponse.from(booking);
+            return presentation.present(booking);
         }
         return persistTransition(booking, previous, actor);
     }
@@ -98,6 +100,6 @@ public class BookingLifecycleService {
             "{\"status\":\"%s\"}".formatted(previous), "{\"status\":\"%s\"}".formatted(booking.getStatus()));
         notifications.enqueueBookingEvent(booking.getCompanyId(), booking.getId(), event);
         metrics.bookingTransitioned(booking.getStatus());
-        return BookingResponse.from(booking);
+        return presentation.present(booking);
     }
 }

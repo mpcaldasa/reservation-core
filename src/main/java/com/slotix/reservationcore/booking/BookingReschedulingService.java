@@ -29,6 +29,7 @@ import java.util.UUID;
 @Service
 @Transactional
 public class BookingReschedulingService {
+    private final BookingPresentation presentation;
     private final BookingRepository bookings;
     private final BookingResourceRepository allocations;
     private final CompanyRepository companies;
@@ -45,8 +46,9 @@ public class BookingReschedulingService {
                                       CompanyRepository companies, ResourceAccessService resources,
                                       ResourcePolicyRepository assignments, BookingPolicyRepository policies,
                                       AvailabilityService availability, TenantAccessService access,
-                                      AuditService audit, NotificationOutboxService notifications, Clock clock) {
+                                      AuditService audit, NotificationOutboxService notifications, Clock clock, BookingPresentation presentation) {
         this.bookings = bookings;
+        this.presentation = presentation;
         this.allocations = allocations;
         this.companies = companies;
         this.resources = resources;
@@ -97,7 +99,7 @@ public class BookingReschedulingService {
             requireCustomerReschedulingAllowed(companyId, booking, oldStartAt, oldEndAt);
         }
         if (oldStartAt.equals(startAt) && oldEndAt.equals(endAt)) {
-            return BookingResponse.from(booking);
+            return presentation.present(booking);
         }
 
         var resource = resources.requireVisibleResource(companyId, booking.getResourceId());
@@ -143,7 +145,7 @@ public class BookingReschedulingService {
             "{\"startAt\":\"%s\",\"endAt\":\"%s\"}".formatted(oldStartAt, oldEndAt),
             "{\"startAt\":\"%s\",\"endAt\":\"%s\"}".formatted(startAt, endAt));
         notifications.enqueueBookingEvent(companyId, bookingId, "BOOKING_RESCHEDULED");
-        return BookingResponse.from(booking);
+        return presentation.present(booking);
     }
 
     private void requireCustomerReschedulingAllowed(UUID companyId, Booking booking, Instant startAt, Instant endAt) {

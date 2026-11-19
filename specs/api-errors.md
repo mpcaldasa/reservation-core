@@ -122,3 +122,9 @@ Authentication failures return `AUTHENTICATION_REQUIRED` or `INVALID_CREDENTIALS
 ## Verification status
 
 The envelope is applied by the global API exception handler and the Spring Security entry points. Business services use `ApiException` with specific codes; the global `ResponseStatusException` handler remains as a compatibility fallback. Unit coverage verifies the envelope, fallback codes, and internal-error detail suppression; API integration coverage verifies booking, assignment, resource, company, identity, and pagination error codes.
+
+## Customer directory errors
+
+| Code | HTTP status | Meaning |
+| --- | --- | --- |
+| `CUSTOMER_NOT_FOUND` | 404 | The requested customer has no current membership in this company |
