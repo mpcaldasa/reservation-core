@@ -25,6 +25,8 @@ public interface BookingRepository extends JpaRepository<Booking, UUID> {
     @Query("select b from Booking b where b.status = com.slotix.reservationcore.booking.BookingStatus.PENDING "
         + "and b.createdAt <= :cutoff order by b.createdAt, b.id")
     List<Booking> lockExpiredPending(@Param("cutoff") Instant cutoff, Pageable pageable);
-    @Query("select b from Booking b where b.companyId = :companyId and b.startAt < :to and b.endAt > :from order by b.startAt")
-    List<Booking> inCalendar(@Param("companyId") UUID companyId, @Param("from") Instant from, @Param("to") Instant to);
+    @Query("select b from Booking b where b.companyId = :companyId and b.startAt < :to and b.endAt > :from "
+        + "and (:customerId is null or b.customerUserId = :customerId) order by b.startAt, b.id")
+    List<Booking> inCalendar(@Param("companyId") UUID companyId, @Param("from") Instant from,
+                             @Param("to") Instant to, @Param("customerId") UUID customerId);
 }

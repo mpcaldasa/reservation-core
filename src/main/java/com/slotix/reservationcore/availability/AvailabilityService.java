@@ -17,6 +17,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Duration;
+import java.time.Clock;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
@@ -26,6 +27,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.TreeMap;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -38,11 +40,12 @@ public class AvailabilityService {
     private final ResourcePolicyRepository assignments;
     private final BookingPolicyRepository policies;
     private final BookingResourceRepository reservations;
+    private final Clock clock;
 
     public AvailabilityService(AvailabilityRuleRepository rules, ResourceBlockRepository blocks,
                                CompanyRepository companies, ResourceAccessService resources,
                                ResourcePolicyRepository assignments, BookingPolicyRepository policies,
-                               BookingResourceRepository reservations) {
+                               BookingResourceRepository reservations, Clock clock) {
         this.rules = rules;
         this.blocks = blocks;
         this.companies = companies;
@@ -50,6 +53,7 @@ public class AvailabilityService {
         this.assignments = assignments;
         this.policies = policies;
         this.reservations = reservations;
+        this.clock = clock;
     }
 
     @Transactional(readOnly = true)
@@ -70,7 +74,7 @@ public class AvailabilityService {
             .orElseThrow(() -> new ApiException(HttpStatus.NOT_FOUND, ApiErrorCode.COMPANY_NOT_FOUND,
                 "Company not found"));
         ZoneId zone = ZoneId.of(company.getTimezone());
-        Instant now = Instant.now();
+        Instant now = clock.instant();
         List<ResourcePolicy> assigned = assignments.findByIdResourceIdOrderByIdEffectiveFromAsc(resourceId);
         Map<UUID, BookingPolicy> policyById = policies.findAllById(assigned.stream().map(ResourcePolicy::getPolicyId).toList())
             .stream().filter(policy -> policy.getCompanyId().equals(companyId) && policy.getDeletedAt() == null
@@ -82,8 +86,9 @@ public class AvailabilityService {
         List<BookingResource> reserved = excludedBookingId == null
             ? reservations.activeInRange(resourceId, dayStart, dayEnd)
             : reservations.activeInRangeExcludingBooking(resourceId, excludedBookingId, dayStart, dayEnd);
+        List<AvailabilitySlot> full = fullIntervals(reserved, resource.getCapacity());
         short weekday = (short) (date.getDayOfWeek().getValue() % 7);
-        List<AvailabilitySlot> result = new ArrayList<>();
+        Map<Instant, AvailabilitySlot> result = new TreeMap<>();
 
         for (AvailabilityRule rule : rules.findByCompanyIdAndResourceIdAndDeletedAtIsNullOrderByWeekdayAscStartLocalTimeAsc(companyId, resourceId)) {
             if (rule.getWeekday() != weekday || (rule.getEffectiveFrom() != null && date.isBefore(rule.getEffectiveFrom()))
@@ -105,9 +110,29 @@ public class AvailabilityService {
                 if (start.isBefore(now.plus(Duration.ofMinutes(policy.getMinNoticeMinutes())))
                     || start.isAfter(now.plus(Duration.ofDays(policy.getMaxAdvanceDays())))) continue;
                 if (blocked.stream().anyMatch(block -> start.isBefore(block.getEndAt()) && end.isAfter(block.getStartAt()))) continue;
-                if (reserved.stream().filter(row -> start.isBefore(row.getEndAt()) && end.isAfter(row.getStartAt())).count()
-                    >= resource.getCapacity()) continue;
-                result.add(new AvailabilitySlot(start, end));
+                if (full.stream().anyMatch(interval -> start.isBefore(interval.endAt()) && end.isAfter(interval.startAt()))) continue;
+                result.put(start, new AvailabilitySlot(start, end));
+            }
+        }
+        return List.copyOf(result.values());
+    }
+
+    private static List<AvailabilitySlot> fullIntervals(List<BookingResource> reserved, int capacity) {
+        Map<Instant, Integer> changes = new TreeMap<>();
+        for (BookingResource row : reserved) {
+            changes.merge(row.getStartAt(), row.getUnits(), Integer::sum);
+            changes.merge(row.getEndAt(), -row.getUnits(), Integer::sum);
+        }
+        List<AvailabilitySlot> result = new ArrayList<>();
+        int occupied = 0;
+        Instant fullFrom = null;
+        for (var change : changes.entrySet()) {
+            occupied += change.getValue();
+            if (occupied >= capacity && fullFrom == null) {
+                fullFrom = change.getKey();
+            } else if (occupied < capacity && fullFrom != null) {
+                result.add(new AvailabilitySlot(fullFrom, change.getKey()));
+                fullFrom = null;
             }
         }
         return result;

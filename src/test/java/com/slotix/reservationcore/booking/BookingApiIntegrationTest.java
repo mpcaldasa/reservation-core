@@ -266,6 +266,88 @@ class BookingApiIntegrationTest extends PostgresIntegrationTestSupport {
     }
 
     @Test
+    void consecutiveBookingsLeaveOneUnitAvailableForALongerBooking() throws Exception {
+        Fixture fixture = fixture(2);
+        createInterval(fixture, fixture.start(), fixture.end(), "first-half", 201);
+        createInterval(fixture, fixture.end(), fixture.end().plusSeconds(1800), "second-half", 201);
+        createInterval(fixture, fixture.start(), fixture.end().plusSeconds(1800), "long-booking", 201);
+        createInterval(fixture, fixture.start(), fixture.end().plusSeconds(1800), "capacity-full", 409);
+        assertEquals(3, bookings.count());
+    }
+
+    @Test
+    void overlappingRulesReturnUniqueChronologicalSlotsAndHonorTheConfiguredClock() throws Exception {
+        Fixture fixture = fixture(2);
+        LocalDate date = fixture.start().atZone(ZoneId.of("America/Bogota")).toLocalDate();
+        rules.save(AvailabilityRule.create(fixture.companyId(), fixture.resourceId(),
+            (short) (date.getDayOfWeek().getValue() % 7), LocalTime.of(9, 30), LocalTime.of(10, 0), null, null));
+        String url = "/api/v1/companies/" + fixture.companyId() + "/resources/" + fixture.resourceId() + "/availability";
+        mvc.perform(get(url).header("Authorization", bearer(fixture.token()))
+                .param("date", date.toString()).param("durationMinutes", "30"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2))
+            .andExpect(jsonPath("$[0].startAt").value(fixture.start().toString()));
+        when(clock.instant()).thenReturn(fixture.end().plusSeconds(3600));
+        mvc.perform(get(url).header("Authorization", bearer(fixture.token()))
+                .param("date", date.toString()).param("durationMinutes", "30"))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(0));
+    }
+
+    @Test
+    void calendarRejectsEvenAFractionBeyond31Days() throws Exception {
+        Fixture fixture = fixture(1);
+        Instant limit = fixture.start().plus(java.time.Duration.ofDays(31));
+        mvc.perform(get("/api/v1/calendar").header("Authorization", bearer(fixture.token()))
+                .param("from", fixture.start().toString()).param("to", limit.toString()))
+            .andExpect(status().isOk());
+        mvc.perform(get("/api/v1/calendar").header("Authorization", bearer(fixture.token()))
+                .param("from", fixture.start().toString()).param("to", limit.plusNanos(1).toString()))
+            .andExpect(status().isBadRequest()).andExpect(jsonPath("$.code").value("CALENDAR_RANGE_INVALID"));
+    }
+
+    private String createInterval(Fixture fixture, Instant start, Instant end, String key, int expectedStatus) throws Exception {
+        return mvc.perform(post("/api/v1/bookings").header("Authorization", bearer(fixture.token()))
+                .header("Idempotency-Key", key).contentType(MediaType.APPLICATION_JSON)
+                .content(json.writeValueAsString(java.util.Map.of("resourceId", fixture.resourceId(),
+                    "startAt", start.toString(), "endAt", end.toString()))))
+            .andExpect(status().is(expectedStatus)).andReturn().getResponse().getContentAsString();
+    }
+
+    @Test
+    void reschedulingUsesPeakCapacityRatherThanTheNumberOfOverlappingBookings() throws Exception {
+        Fixture fixture = fixture(2);
+        createInterval(fixture, fixture.start(), fixture.end(), "first-half", 201);
+        createInterval(fixture, fixture.end(), fixture.end().plusSeconds(1800), "second-half", 201);
+        Instant nextWeek = fixture.start().plus(java.time.Duration.ofDays(7));
+        String source = createInterval(fixture, nextWeek, nextWeek.plusSeconds(3600), "source", 201);
+        String id = json.readTree(source).get("id").asText();
+        mvc.perform(put("/api/v1/bookings/{id}/reschedule", id).header("Authorization", bearer(fixture.token()))
+                .contentType(MediaType.APPLICATION_JSON).content(json.writeValueAsString(java.util.Map.of(
+                    "startAt", fixture.start().toString(), "endAt", fixture.start().plusSeconds(3600).toString()))))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.startAt").value(fixture.start().toString()));
+    }
+
+    @Test
+    void calendarScopesCustomersInTheDatabaseAndKeepsStaffVisibility() throws Exception {
+        Fixture fixture = fixture(2);
+        createInterval(fixture, fixture.start(), fixture.end(), "own", 201);
+        User other = users.save(User.create(UUID.randomUUID() + "@example.test", "unused", "Other customer"));
+        memberships.save(CompanyMembership.create(fixture.companyId(), other.getId(), Set.of(MembershipRole.CUSTOMER)));
+        Booking otherBooking = bookings.saveAndFlush(Booking.create(fixture.companyId(), other.getId(),
+            fixture.resourceId(), fixture.start(), fixture.end(), BookingStatus.CONFIRMED, "America/Bogota", null));
+        bookingResources.saveAndFlush(BookingResource.create(otherBooking, false));
+        mvc.perform(get("/api/v1/calendar").header("Authorization", bearer(fixture.token()))
+                .param("from", fixture.start().toString()).param("to", fixture.end().toString()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(1))
+            .andExpect(jsonPath("$[0].customerUserId").value(fixture.userId().toString()));
+        User staff = users.save(User.create(UUID.randomUUID() + "@example.test", "unused", "Calendar manager"));
+        memberships.save(CompanyMembership.create(fixture.companyId(), staff.getId(), Set.of(MembershipRole.BOOKING_MANAGER)));
+        mvc.perform(get("/api/v1/calendar").header("Authorization", bearer(jwt.generateToken(staff.getId(),
+                    fixture.companyId(), List.of("BOOKING_MANAGER"))))
+                .param("from", fixture.start().toString()).param("to", fixture.end().toString()))
+            .andExpect(status().isOk()).andExpect(jsonPath("$.length()").value(2));
+    }
+
+    @Test
     void postgresExclusionRejectsOverlapEvenWhenApplicationCheckIsBypassed() throws Exception {
         Fixture fixture = fixture(1);
         mvc.perform(post("/api/v1/bookings").header("Authorization", bearer(fixture.token()))

@@ -103,7 +103,7 @@ class BookingLifecycleApiIntegrationTest extends PostgresIntegrationTestSupport 
             .andExpect(jsonPath("$.checkedInBy").value(fixture.adminId().toString()));
         mvc.perform(post(endpoint(fixture, "check-in")).header("Authorization", fixture.managerToken()))
             .andExpect(status().isOk()).andExpect(jsonPath("$.checkedInBy").value(fixture.adminId().toString()));
-        assertEquals(1, allocations.occupied(fixture.resourceId(), START, END));
+        assertEquals(1, allocations.activeInRange(fixture.resourceId(), START, END).size());
 
         Instant completion = NOW.plusSeconds(60);
         when(clock.instant()).thenReturn(completion);
@@ -114,7 +114,7 @@ class BookingLifecycleApiIntegrationTest extends PostgresIntegrationTestSupport 
         mvc.perform(post(endpoint(fixture, "complete")).header("Authorization", fixture.adminToken()))
             .andExpect(status().isOk()).andExpect(jsonPath("$.completedBy").value(fixture.managerId().toString()));
 
-        assertEquals(0, allocations.occupied(fixture.resourceId(), START, END));
+        assertEquals(0, allocations.activeInRange(fixture.resourceId(), START, END).size());
         assertEquals("COMPLETED", allocationStatus(fixture));
         assertEquals(2, auditCount(fixture));
         assertEquals(2, eventCount(fixture));
@@ -334,7 +334,7 @@ class BookingLifecycleApiIntegrationTest extends PostgresIntegrationTestSupport 
             .andExpect(status().isOk()).andExpect(jsonPath("$.noShowBy").value(fixture.adminId().toString()));
 
         assertEquals("NO_SHOW", allocationStatus(fixture));
-        assertEquals(0, allocations.occupied(fixture.resourceId(), START, END));
+        assertEquals(0, allocations.activeInRange(fixture.resourceId(), START, END).size());
         assertEquals(1, auditCount(fixture));
         assertEquals(1, eventCount(fixture));
         queue.stagePendingDeliveries();

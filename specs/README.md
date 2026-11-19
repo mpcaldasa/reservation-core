@@ -11,6 +11,7 @@ Specifications describe observable behavior, module boundaries, and the verifica
 - [Resource administration](resource-administration.md): updating, activating, and deactivating company resources.
 - [Booking policy administration](policy-administration.md): policy editing, activation, deactivation, and assignment safety.
 - [Booking attendance lifecycle](booking-lifecycle.md): staff check-in, completion, capacity release, and concurrent transitions.
+- [Availability calculation](availability-calculation.md): peak capacity, unique slots, application clock, and calendar boundaries.
 - [Notification delivery](notification-delivery.md): delivery state, ownership, retry rules, configuration, and acceptance coverage.
 - [Observability](observability.md): structured logs, metrics, traces, supported backends, local setup, and cost controls.
 

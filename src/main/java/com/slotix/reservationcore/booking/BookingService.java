@@ -132,7 +132,7 @@ public class BookingService {
         boolean validSlot = availability.slots(companyId, resource.getId(),
                 request.startAt().atZone(zone).toLocalDate(), duration).stream()
             .anyMatch(slot -> slot.startAt().equals(request.startAt()) && slot.endAt().equals(request.endAt()));
-        if (!validSlot || occupied.occupied(resource.getId(), request.startAt(), request.endAt()) >= resource.getCapacity()) {
+        if (!validSlot) {
             throw new ApiException(HttpStatus.CONFLICT, ApiErrorCode.BOOKING_SLOT_UNAVAILABLE,
                 "The selected time slot is no longer available");
         }
@@ -162,15 +162,14 @@ public class BookingService {
     @Transactional(readOnly = true)
     public List<BookingResponse> calendar(UUID companyId, Instant from, Instant to) {
         access.requireActiveMembership(companyId);
-        if (!to.isAfter(from) || Duration.between(from, to).toDays() > 31) {
+        if (!to.isAfter(from) || Duration.between(from, to).compareTo(Duration.ofDays(31)) > 0) {
             throw new ApiException(HttpStatus.BAD_REQUEST, ApiErrorCode.CALENDAR_RANGE_INVALID,
                 "The calendar range must be positive and no longer than 31 days");
         }
         AuthenticatedPrincipal actor = principal();
         boolean staff = isStaff();
-        return bookings.inCalendar(companyId, from, to)
-            .stream().filter(booking -> staff || booking.getCustomerUserId().equals(actor.userId()))
-            .map(BookingResponse::from).toList();
+        return bookings.inCalendar(companyId, from, to, staff ? null : actor.userId())
+            .stream().map(BookingResponse::from).toList();
     }
 
     @Transactional

@@ -45,4 +45,5 @@ public class BookingResource {
     public BookingStatus getStatus() { return status; }
     public Instant getStartAt() { return startAt; }
     public Instant getEndAt() { return endAt; }
+    public int getUnits() { return units; }
 }
